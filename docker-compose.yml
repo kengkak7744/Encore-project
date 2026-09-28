@@ -1,0 +1,96 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: artist
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-artist}
+      POSTGRES_DB: artist_tracker
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artist -d artist_tracker"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
+      WEB_ORIGIN: http://localhost:3000
+      OLLAMA_URL: http://host.docker.internal:11434
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      BANDSINTOWN_APP_ID: ${BANDSINTOWN_APP_ID:-}
+      AMADEUS_CLIENT_ID: ${AMADEUS_CLIENT_ID:-}
+      AMADEUS_CLIENT_SECRET: ${AMADEUS_CLIENT_SECRET:-}
+      AMADEUS_ENV: ${AMADEUS_ENV:-test}
+      SOCIAL_STALE_AFTER_MINUTES: ${SOCIAL_STALE_AFTER_MINUTES:-60}
+      GOOGLE_ROUTES_ENABLED: ${GOOGLE_ROUTES_ENABLED:-false}
+      GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY:-}
+      GOOGLE_ROUTES_TIMEOUT_SECONDS: ${GOOGLE_ROUTES_TIMEOUT_SECONDS:-5}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+  worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["npm", "run", "start:worker", "-w", "@artist-tracker/server"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
+      OLLAMA_URL: http://host.docker.internal:11434
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      TICKETMASTER_BASE_URL: ${TICKETMASTER_BASE_URL:-https://app.ticketmaster.com/discovery/v2}
+      TICKETMASTER_COUNTRY_CODE: ${TICKETMASTER_COUNTRY_CODE:-TH}
+      TICKETMASTER_TIMEOUT_SECONDS: ${TICKETMASTER_TIMEOUT_SECONDS:-10}
+      CONCERT_SCHEDULER_ENABLED: ${CONCERT_SCHEDULER_ENABLED:-true}
+      INSTAGRAM_GRAPH_ACCESS_TOKEN: ${INSTAGRAM_GRAPH_ACCESS_TOKEN:-}
+      INSTAGRAM_GRAPH_IG_USER_ID: ${INSTAGRAM_GRAPH_IG_USER_ID:-}
+      INSTAGRAM_GRAPH_TOKEN_EXPIRES_AT: ${INSTAGRAM_GRAPH_TOKEN_EXPIRES_AT:-}
+      INSTAGRAM_GRAPH_API_VERSION: ${INSTAGRAM_GRAPH_API_VERSION:-v25.0}
+      SOCIAL_SCHEDULER_ENABLED: ${SOCIAL_SCHEDULER_ENABLED:-true}
+      SOCIAL_SYNC_INTERVAL_MINUTES: ${SOCIAL_SYNC_INTERVAL_MINUTES:-60}
+      BANDSINTOWN_APP_ID: ${BANDSINTOWN_APP_ID:-}
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVER_ORIGIN: http://api:4000
+    depends_on: [api]
+    ports:
+      - "127.0.0.1:3000:3000"
+  seed:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "apps/server/dist/seed.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:

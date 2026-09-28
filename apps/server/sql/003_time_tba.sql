@@ -1,0 +1,1 @@
+ALTER TABLE concerts ADD COLUMN IF NOT EXISTS time_tba boolean NOT NULL DEFAULT false;

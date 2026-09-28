@@ -1,0 +1,106 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: artist
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in a private environment file}
+      POSTGRES_DB: artist_tracker
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artist -d artist_tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  api:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
+      WEB_ORIGIN: https://${DOMAIN:?set public domain}
+      OLLAMA_URL: ${OLLAMA_URL:?set private VPN address of Ollama}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      BANDSINTOWN_APP_ID: ${BANDSINTOWN_APP_ID:-}
+      AMADEUS_CLIENT_ID: ${AMADEUS_CLIENT_ID:-}
+      AMADEUS_CLIENT_SECRET: ${AMADEUS_CLIENT_SECRET:-}
+      AMADEUS_ENV: ${AMADEUS_ENV:-test}
+      SOCIAL_STALE_AFTER_MINUTES: ${SOCIAL_STALE_AFTER_MINUTES:-60}
+      GOOGLE_ROUTES_ENABLED: ${GOOGLE_ROUTES_ENABLED:-false}
+      GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY:-}
+      GOOGLE_ROUTES_TIMEOUT_SECONDS: ${GOOGLE_ROUTES_TIMEOUT_SECONDS:-5}
+    depends_on:
+      db:
+        condition: service_healthy
+  worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["npm", "run", "start:worker", "-w", "@artist-tracker/server"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
+      OLLAMA_URL: ${OLLAMA_URL:?set private VPN address of Ollama}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      TICKETMASTER_BASE_URL: ${TICKETMASTER_BASE_URL:-https://app.ticketmaster.com/discovery/v2}
+      TICKETMASTER_COUNTRY_CODE: ${TICKETMASTER_COUNTRY_CODE:-TH}
+      TICKETMASTER_TIMEOUT_SECONDS: ${TICKETMASTER_TIMEOUT_SECONDS:-10}
+      CONCERT_SCHEDULER_ENABLED: ${CONCERT_SCHEDULER_ENABLED:-true}
+      INSTAGRAM_GRAPH_ACCESS_TOKEN: ${INSTAGRAM_GRAPH_ACCESS_TOKEN:-}
+      INSTAGRAM_GRAPH_IG_USER_ID: ${INSTAGRAM_GRAPH_IG_USER_ID:-}
+      INSTAGRAM_GRAPH_TOKEN_EXPIRES_AT: ${INSTAGRAM_GRAPH_TOKEN_EXPIRES_AT:-}
+      INSTAGRAM_GRAPH_API_VERSION: ${INSTAGRAM_GRAPH_API_VERSION:-v25.0}
+      SOCIAL_SCHEDULER_ENABLED: ${SOCIAL_SCHEDULER_ENABLED:-true}
+      SOCIAL_SYNC_INTERVAL_MINUTES: ${SOCIAL_SYNC_INTERVAL_MINUTES:-60}
+      BANDSINTOWN_APP_ID: ${BANDSINTOWN_APP_ID:-}
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    depends_on: [api]
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set public domain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web]
+  seed:
+    profiles: [setup]
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "apps/server/dist/seed.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
