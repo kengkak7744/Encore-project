@@ -2,6 +2,8 @@
 
 เว็บ Next.js, API/worker Express, PostgreSQL + pgvector และ Ollama สำหรับติดตามศิลปิน คอนเสิร์ต ข่าว และงบทริป
 
+โค้ดโครงการอยู่ที่ [Encore-project](https://github.com/kengkak7744/Encore-project)
+
 ## เริ่มใช้งานบนเครื่อง
 
 ต้องมี Node.js 24+, Docker Desktop และ Ollama
