@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { curatedArtistProfiles } from './artist-profiles.js';
+import { artistBiographies } from './artist-biographies.js';
+import { biographyFor, curatedArtistProfiles } from './artist-profiles.js';
 
 test('curated artist profiles have unique identities and traceable HTTPS evidence', () => {
   const slugs = curatedArtistProfiles.map((profile) => profile.slug);
@@ -12,7 +13,9 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
     assert.ok(profile.bio.length >= 20 && profile.bio.length <= 240);
     assert.equal(new URL(profile.sourceUrl).protocol, 'https:');
     assert.ok(profile.sourceLabel.trim());
-    for (const section of profile.biography || []) {
+    const biography = biographyFor(profile);
+    assert.ok(biography.length >= 3, `${profile.slug} needs at least three sourced biography sections`);
+    for (const section of biography) {
       assert.ok(section.heading.trim());
       assert.ok(section.body.trim().length >= 80);
       assert.equal(new URL(section.sourceUrl).protocol, 'https:');
@@ -28,5 +31,6 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
   }
   const aheye = curatedArtistProfiles.find((profile) => profile.slug === 'aheye-4eve');
   assert.ok(aheye);
-  assert.ok((aheye.biography?.length || 0) >= 4);
+  assert.ok(biographyFor(aheye).length >= 4);
+  assert.deepEqual(Object.keys(artistBiographies).sort(), slugs.filter((slug) => slug !== 'aheye-4eve').sort());
 });

@@ -1,3 +1,5 @@
+import { artistBiographies, type BiographySection } from './artist-biographies.js';
+
 export type CuratedArtistProfile = {
   slug: string;
   bio: string;
@@ -5,7 +7,7 @@ export type CuratedArtistProfile = {
   sourceUrl: string;
   sourceLabel: string;
   accounts?: { platform: 'x' | 'facebook' | 'instagram' | 'website'; url: string; evidenceUrl: string }[];
-  biography?: { heading: string; body: string; sourceUrl: string; sourceLabel: string }[];
+  biography?: BiographySection[];
 };
 
 // Short, original summaries of facts published by an artist, label, manager, or distributor.
@@ -65,3 +67,7 @@ export const curatedArtistProfiles: CuratedArtistProfile[] = [
     { heading: 'มุมมองต่อการทำงาน', body: 'อ๊ะอายให้ความสำคัญกับแฟนเพลงและสมาชิกอีกหกคนในวง เธอเล่าว่าเมื่อเติบโตขึ้นก็กล้าเสนอความคิดเห็นในการทำงานของ 4EVE มากกว่าเดิม และมองความก้าวหน้าของตัวเองผ่านประสบการณ์ที่ได้ทำร่วมกับวง ทั้งงานเพลง คอนเสิร์ต และการพบผู้ชม', sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People — สัมภาษณ์อ๊ะอาย' },
   ] },
 ];
+
+export function biographyFor(profile: CuratedArtistProfile): BiographySection[] {
+  return profile.biography ?? artistBiographies[profile.slug] ?? [];
+}

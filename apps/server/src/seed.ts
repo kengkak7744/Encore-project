@@ -2,7 +2,7 @@ import { hashPassword } from './auth.js';
 import { config } from './config.js';
 import { one, pool, query } from './db.js';
 import { migrate } from './migrate.js';
-import { curatedArtistProfiles } from './artist-profiles.js';
+import { biographyFor, curatedArtistProfiles } from './artist-profiles.js';
 
 // Candidate catalogue. verified_at stays NULL until an editor checks an official source.
 const artists: [string, string, 'band' | 'solo' | 'member', string[]][] = [
@@ -44,7 +44,7 @@ for (const profile of curatedArtistProfiles) {
   if (!artist.bio?.trim() || artist.bio === profile.bio) {
     await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [artist.id, profile.sourceUrl, profile.sourceLabel]);
   }
-  for (const [index, section] of (profile.biography || []).entries()) {
+  for (const [index, section] of biographyFor(profile).entries()) {
     await query('INSERT INTO artist_biography_sections(artist_id,position,heading,body,source_url,source_label) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [artist.id, index + 1, section.heading, section.body, section.sourceUrl, section.sourceLabel]);
     await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [artist.id, section.sourceUrl, section.sourceLabel]);
   }
