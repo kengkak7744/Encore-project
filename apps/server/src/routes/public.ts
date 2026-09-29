@@ -32,7 +32,8 @@ publicRoutes.get('/artists', async (req, res) => {
   params.push((page - 1) * 20);
   const items = await query(
     'SELECT a.id, a.slug, a.name, a.name_en, a.kind, a.bio, a.image_url, a.genres, a.popularity_rank, a.verified_at, ' +
-    "(SELECT count(*)::integer FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = a.id AND (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND c.status = 'scheduled') AS upcoming_count " +
+    "(SELECT count(*)::integer FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = a.id AND (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND c.status = 'scheduled') AS upcoming_count, " +
+    "COALESCE((SELECT json_agg(json_build_object('source_url', s.source_url, 'label', s.label, 'checked_at', s.checked_at) ORDER BY s.label) FROM artist_sources s WHERE s.artist_id = a.id), '[]'::json) AS sources " +
     'FROM artists a ' + filter + ' ORDER BY a.popularity_rank ASC NULLS LAST, a.name ASC LIMIT 20 OFFSET $' + params.length,
     params,
   );

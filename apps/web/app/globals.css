@@ -3,3 +3,18 @@
 @media(max-width:900px){.site-header nav{gap:13px}.site-header nav a{font-size:12px}.artist-grid,.concert-grid{grid-template-columns:repeat(2,1fr)}.hero-content{grid-template-columns:1.1fr .9fr}.hero h1{font-size:54px}.vinyl{width:300px;height:300px}.hero-sticker{right:-15px}.concert-detail{grid-template-columns:1fr}.source-panel{max-width:none}}
 @media(max-width:650px){.container{width:min(100% - 32px,1180px)}.site-header{height:auto}.nav-inner{flex-wrap:wrap;padding:12px 0;gap:10px}.brand{font-size:22px}.brand-icon{width:34px;height:34px}.site-header nav{order:3;width:100%;overflow:auto;gap:20px;padding:7px 0 2px}.site-header nav a{white-space:nowrap}.account-link span{display:none}.account-link{padding:9px}.hero-content{display:flex;flex-direction:column;align-items:stretch}.hero-copy{padding:42px 0 0}.hero h1{font-size:48px}.hero-visual{min-height:320px}.hero-visual:before{width:400px;height:400px;top:25px;right:calc(50% - 220px)}.vinyl{width:250px;height:250px}.vinyl-label{width:100px;height:100px}.vinyl-label strong{font-size:20px}.hero-sticker{width:75px;height:75px;font-size:11px;right:15px;bottom:25px}.feature-strip .container{flex-wrap:wrap;gap:12px}.feature-strip span{font-size:11px}.section{padding-top:48px;padding-bottom:48px}.section-heading h2,.section h2{font-size:26px}.section-heading{align-items:start}.text-link{white-space:nowrap;font-size:12px}.artist-grid,.concert-grid,.news-grid,.assistant-grid,.account-layout,.stat-row{grid-template-columns:1fr}.artist-card{min-height:125px;flex-direction:row;align-items:center;gap:15px}.artist-avatar{flex:none;margin:0}.artist-card .eyebrow{font-size:9px}.concert-art{height:190px}.cta{margin-top:45px;padding:30px;display:block}.cta .button{margin-top:20px}.detail-hero{grid-template-columns:1fr;padding:25px;gap:20px}.detail-avatar{height:240px}.concert-detail-main{padding:25px}.toolbar>*{flex:1}.toolbar .search-field{flex-basis:100%}.status-item{display:block}.status-item>div:last-child{text-align:left;margin-top:10px}.site-footer .container{display:grid;gap:10px}.site-footer a{margin:0}}
 .budget-form textarea{width:100%;border:1px solid var(--line);border-radius:11px;padding:13px;font:inherit;resize:vertical}
+
+.artist-profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.artist-profile-card{min-width:0;display:flex;flex-direction:column;gap:16px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px}
+.artist-profile-heading{display:flex;align-items:center;gap:16px;min-width:0}
+.artist-profile-heading .artist-avatar{flex:none;margin-bottom:0}
+.artist-profile-heading h2{font-size:20px;margin:4px 0}
+.artist-profile-heading h2 a:hover,.artist-profile-sources a:hover,.artist-profile-more:hover{color:#4d8c38}
+.artist-profile-genres{color:var(--muted);font-size:12px;margin:0}
+.artist-profile-bio{font-size:14px;line-height:1.8;margin:0;flex:1}
+.artist-profile-sources{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);padding-top:14px;font-size:12px}
+.artist-profile-sources>span,.artist-profile-sources small{color:var(--muted)}
+.artist-profile-sources a{display:inline-flex;align-items:center;gap:4px;color:var(--forest);font-weight:700;overflow-wrap:anywhere}
+.artist-profile-more{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;color:var(--forest);font-size:13px;font-weight:700}
+@media(max-width:800px){.artist-profile-grid{grid-template-columns:1fr}}
+@media(max-width:650px){.artist-profile-card{padding:20px}.artist-profile-heading .artist-avatar{width:62px;height:62px}.artist-profile-heading h2{font-size:18px}}
