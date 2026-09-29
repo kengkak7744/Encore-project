@@ -45,10 +45,11 @@ publicRoutes.get('/artists/:slug', async (req, res) => {
   if (!artist) { res.status(404).json({ error: 'ไม่พบศิลปิน' }); return; }
   const accounts = await query('SELECT platform, handle, url, verified_at, last_checked_at, last_success_at, last_error FROM social_accounts WHERE artist_id = $1 AND verified_at IS NOT NULL ORDER BY platform', [artist.id]);
   const sources = await query('SELECT source_url, label, checked_at FROM artist_sources WHERE artist_id = $1 ORDER BY label', [artist.id]);
+  const biography = await query('SELECT position, heading, body, source_url, source_label, checked_at FROM artist_biography_sections WHERE artist_id = $1 ORDER BY position', [artist.id]);
   const members = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.member_id WHERE am.band_id = $1 ORDER BY a.name', [artist.id]);
   const bands = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.band_id WHERE am.member_id = $1 ORDER BY a.name', [artist.id]);
   const upcoming = await query("SELECT c.id, c.slug, c.title, c.starts_at, c.time_tba, c.venue, c.city, c.country_code, c.status, c.image_url, c.price_min, c.currency, c.last_verified_at FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = $1 AND (c.starts_at >= now() OR c.starts_at IS NULL OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) ORDER BY c.starts_at ASC NULLS LAST LIMIT 12", [artist.id]);
-  res.json({ ...artist, accounts, sources, members, bands, upcoming });
+  res.json({ ...artist, accounts, sources, biography, members, bands, upcoming });
 });
 
 publicRoutes.get('/concerts', async (req, res) => {

@@ -5,6 +5,7 @@ export type CuratedArtistProfile = {
   sourceUrl: string;
   sourceLabel: string;
   accounts?: { platform: 'x' | 'facebook' | 'instagram' | 'website'; url: string; evidenceUrl: string }[];
+  biography?: { heading: string; body: string; sourceUrl: string; sourceLabel: string }[];
 };
 
 // Short, original summaries of facts published by an artist, label, manager, or distributor.
@@ -54,5 +55,13 @@ export const curatedArtistProfiles: CuratedArtistProfile[] = [
   { slug: 'hannah-4eve', bio: 'แฮนน่าเป็นหนึ่งในสมาชิกเกิร์ลกรุ๊ปไทย 4EVE', genres: ['t-pop'], sourceUrl: 'https://workpointtoday.com/girl-group-4eve-debut22/', sourceLabel: 'Workpoint' },
   { slug: 'fai-4eve', bio: 'ฝ้ายเป็นหนึ่งในสมาชิกเกิร์ลกรุ๊ปไทย 4EVE', genres: ['t-pop'], sourceUrl: 'https://workpointtoday.com/girl-group-4eve-debut22/', sourceLabel: 'Workpoint' },
   { slug: 'punch-4eve', bio: 'พั้นช์เป็นหนึ่งในสมาชิกเกิร์ลกรุ๊ปไทย 4EVE', genres: ['t-pop'], sourceUrl: 'https://workpointtoday.com/girl-group-4eve-debut22/', sourceLabel: 'Workpoint' },
-  { slug: 'aheye-4eve', bio: 'อ๊ะอายเป็นหนึ่งในสมาชิกเกิร์ลกรุ๊ปไทย 4EVE', genres: ['t-pop'], sourceUrl: 'https://workpointtoday.com/girl-group-4eve-debut22/', sourceLabel: 'Workpoint' },
+  { slug: 'aheye-4eve', bio: 'อ๊ะอาย หรือ กรณิศ เล้าสุบินประเสริฐ เป็นนักร้องและนักแสดงไทย สมาชิกวง 4EVE', genres: ['t-pop'], sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People', biography: [
+    { heading: 'วัยเด็กและจุดเริ่มต้นของการร้องเพลง', body: 'อ๊ะอายมีชื่อจริงว่า กรณิศ เล้าสุบินประเสริฐ เธอเล่าว่าความสนใจในการร้องเพลงเริ่มจากการร้องเพลงกับคุณพ่อระหว่างนั่งรถ ก่อนที่ครอบครัวจะส่งไปเรียนร้องเพลงเป็นกลุ่ม แม้ในวัยเด็กจะเคยเขินอายจนพลาดโอกาสจากการคัดเลือกนักแสดง เธอก็กลับมาลองใหม่และค่อย ๆ คุ้นกับการแสดงต่อหน้าคนอื่น ต่อมา BLACKPINK ทำให้เธออยากเป็นสมาชิกเกิร์ลกรุ๊ป', sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People — สัมภาษณ์อ๊ะอาย' },
+    { heading: 'เส้นทางสู่ 4EVE', body: 'อ๊ะอายผ่านรายการคัดเลือก 4EVE Girl Group Star ซึ่งเปิดโอกาสให้ผู้สมัครมากกว่าหนึ่งพันคนเข้าร่วมและคัดเด็กฝึกมาแข่งขัน ก่อนประกาศสมาชิกเจ็ดคนของ 4EVE ภายใต้ XOXO Entertainment เธอเป็นสมาชิกที่อายุน้อยที่สุดในกลุ่มเมื่อวงเปิดตัว', sourceUrl: 'https://workpointtoday.com/girl-group-4eve-debut22/', sourceLabel: 'Workpoint — การเปิดตัว 4EVE' },
+    { heading: 'การเติบโตบนเวที', body: 'หลังเข้าวง อ๊ะอายพัฒนาทั้งการร้อง การเต้น และการสื่อสารกับผู้ชมบนเวที เธอเล่าว่าคอนเสิร์ตใหญ่ของ 4EVE ที่อิมแพ็ค อารีน่าเป็นหนึ่งในช่วงเวลาที่ทำให้รู้สึกถึงการเป็นศิลปินเต็มตัว ประสบการณ์การซ้อม การแสดงสด และการทำงานร่วมกับสมาชิกวงทำให้เธอเห็นพัฒนาการของตัวเองชัดขึ้น', sourceUrl: 'https://ellethailand.com/aheye-4eve-cover-october-2025-interview/', sourceLabel: 'ELLE Thailand — สัมภาษณ์อ๊ะอาย' },
+    { heading: 'การเรียนควบคู่กับงาน', body: 'ช่วงมัธยมปลาย อ๊ะอายต้องแบ่งเวลาระหว่างการเรียนกับงานในวง โดยช่วงเตรียมสอบจบชั้น ม.6 ตรงกับการเตรียมคอนเสิร์ตใหญ่ครั้งแรกของ 4EVE เธอเล่าถึงความกดดันจากการสอบทฤษฎีดนตรีและการซ้อมคอนเสิร์ต ก่อนจะค่อย ๆ จัดการภารกิจทีละอย่าง', sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People — สัมภาษณ์อ๊ะอาย' },
+    { heading: 'งานแสดง', body: 'นอกเหนือจากงานเพลง อ๊ะอายรับบท “จิน” ในภาพยนตร์เรื่อง Attack 13 วิญญาณเลขที่ 13 เธอมองว่าบทนี้เป็นงานที่ท้าทาย เพราะต้องถ่ายทอดบุคลิกและอารมณ์ต่างจากตัวเอง งานแสดงจึงเป็นอีกพื้นที่ให้เธอฝึกทักษะและลองบทบาทใหม่ ๆ', sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People — สัมภาษณ์อ๊ะอาย' },
+    { heading: 'ละครเวที', body: 'ในปี 2567 อ๊ะอายร่วมแสดงละครเวที นิทานหิ่งห้อย เดอะมิวสิคัล รับบท “พระจันทร์” โดยแสดงสลับรอบกับมายด์ สมาชิก 4EVE อีกคน ผลงานนี้เปิดพื้นที่ให้เธอใช้ทั้งการร้องเพลงและการแสดงต่อหน้าผู้ชมสดในรูปแบบละครเวที', sourceUrl: 'https://workpointtoday.com/firefly-tales/', sourceLabel: 'Workpoint — นิทานหิ่งห้อย เดอะมิวสิคัล' },
+    { heading: 'มุมมองต่อการทำงาน', body: 'อ๊ะอายให้ความสำคัญกับแฟนเพลงและสมาชิกอีกหกคนในวง เธอเล่าว่าเมื่อเติบโตขึ้นก็กล้าเสนอความคิดเห็นในการทำงานของ 4EVE มากกว่าเดิม และมองความก้าวหน้าของตัวเองผ่านประสบการณ์ที่ได้ทำร่วมกับวง ทั้งงานเพลง คอนเสิร์ต และการพบผู้ชม', sourceUrl: 'https://www.thepeople.co/interview/culture/55294', sourceLabel: 'The People — สัมภาษณ์อ๊ะอาย' },
+  ] },
 ];

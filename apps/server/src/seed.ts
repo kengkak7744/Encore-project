@@ -44,6 +44,10 @@ for (const profile of curatedArtistProfiles) {
   if (!artist.bio?.trim() || artist.bio === profile.bio) {
     await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [artist.id, profile.sourceUrl, profile.sourceLabel]);
   }
+  for (const [index, section] of (profile.biography || []).entries()) {
+    await query('INSERT INTO artist_biography_sections(artist_id,position,heading,body,source_url,source_label) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [artist.id, index + 1, section.heading, section.body, section.sourceUrl, section.sourceLabel]);
+    await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [artist.id, section.sourceUrl, section.sourceLabel]);
+  }
   for (const account of profile.accounts || []) {
     const handle = account.platform === 'website' ? null : new URL(account.url).pathname.split('/').filter(Boolean)[0] || null;
     await query('INSERT INTO social_accounts(artist_id,platform,handle,url,verified_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT DO NOTHING', [artist.id, account.platform, handle, account.url]);

@@ -18,3 +18,13 @@
 .artist-profile-more{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;color:var(--forest);font-size:13px;font-weight:700}
 @media(max-width:800px){.artist-profile-grid{grid-template-columns:1fr}}
 @media(max-width:650px){.artist-profile-card{padding:20px}.artist-profile-heading .artist-avatar{width:62px;height:62px}.artist-profile-heading h2{font-size:18px}}
+
+.artist-biography{max-width:850px;margin-inline:auto}
+.artist-biography-sections{background:#fff;border:1px solid var(--line);border-radius:18px;padding:8px 32px}
+.artist-biography-section{padding:26px 0;border-bottom:1px solid var(--line)}
+.artist-biography-section:last-child{border-bottom:0}
+.artist-biography-section h3{font-size:19px;margin-bottom:12px}
+.artist-biography-section p{line-height:1.95;color:#485348;font-size:15px;margin-bottom:10px}
+.artist-biography-section a{display:inline-flex;align-items:center;gap:4px;color:var(--forest);font-size:12px;font-weight:700}
+.artist-biography-section a:hover{text-decoration:underline}
+@media(max-width:650px){.artist-biography-sections{padding:4px 20px}.artist-biography-section{padding:22px 0}}

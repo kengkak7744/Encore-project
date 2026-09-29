@@ -12,6 +12,12 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
     assert.ok(profile.bio.length >= 20 && profile.bio.length <= 240);
     assert.equal(new URL(profile.sourceUrl).protocol, 'https:');
     assert.ok(profile.sourceLabel.trim());
+    for (const section of profile.biography || []) {
+      assert.ok(section.heading.trim());
+      assert.ok(section.body.trim().length >= 80);
+      assert.equal(new URL(section.sourceUrl).protocol, 'https:');
+      assert.ok(section.sourceLabel.trim());
+    }
     for (const account of profile.accounts || []) {
       const url = new URL(account.url);
       const hosts: Record<string, string[]> = { instagram: ['instagram.com'], facebook: ['facebook.com'], x: ['x.com', 'twitter.com'] };
@@ -20,4 +26,7 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
       assert.equal(new URL(account.evidenceUrl).protocol, 'https:');
     }
   }
+  const aheye = curatedArtistProfiles.find((profile) => profile.slug === 'aheye-4eve');
+  assert.ok(aheye);
+  assert.ok((aheye.biography?.length || 0) >= 4);
 });
