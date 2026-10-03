@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseEventpop, parseEventpopMeta, parseEvents, parseLiveNation, parseTheConcert, parseTheConcertHighlightIds, parseTicketmaster, parseTicketmelon, robotsAllows } from './ingest.js';
+import { matchTicketmasterAttraction, parseEventpop, parseEventpopMeta, parseEvents, parseLiveNation, parseTheConcert, parseTheConcertHighlightIds, parseTicketmaster, parseTicketmelon, robotsAllows } from './ingest.js';
 
 test('Ticketmelon robots wildcard permits home but blocks search and query URLs', () => {
   const rules = 'User-agent: *\nAllow: /\nDisallow: /search\nDisallow: /*?*\n';
@@ -111,22 +111,66 @@ test('The Concert public highlights yield bounded numeric detail IDs', () => {
 });
 
 test('Ticketmaster keeps country, status, local time and price evidence', () => {
+  const identity = { aliases: ['Artist'], attractionIds: ['verified-artist'], officialUrls: [] };
   const event = {
     name: 'Artist Live', url: 'https://www.ticketmaster.com/event/123',
-    _embedded: { venues: [{ name: 'Hall', timezone: 'America/New_York', city: { name: 'New York' }, country: { countryCode: 'US' } }] },
+    _embedded: { venues: [{ name: 'Hall', timezone: 'America/New_York', city: { name: 'New York' }, country: { countryCode: 'US' } }], attractions: [{ id: 'verified-artist', name: 'Artist' }] },
     dates: { start: { localDate: '2027-03-14', localTime: '19:00:00' }, status: { code: 'postponed' } },
     priceRanges: [{ min: 40, max: 80, currency: 'USD' }, { min: 25, max: 100, currency: 'USD' }],
   };
-  const parsed = parseTicketmaster(event, 'Artist');
+  const parsed = parseTicketmaster(event, 'Artist', undefined, identity);
   assert.equal(parsed?.startsAt, '2027-03-14T23:00:00.000Z');
   assert.equal(parsed?.status, 'postponed');
   assert.equal(parsed?.priceMin, 25);
   assert.equal(parsed?.priceMax, 100);
   assert.equal(parseTicketmaster({ ...event, _embedded: { venues: [{ country: {} }] } }, 'Artist'), null);
-  const mixed = parseTicketmaster({ ...event, priceRanges: [{ min: 40, currency: 'USD' }, { min: 500, currency: 'THB' }] }, 'Artist');
+  const mixed = parseTicketmaster({ ...event, priceRanges: [{ min: 40, currency: 'USD' }, { min: 500, currency: 'THB' }] }, 'Artist', undefined, identity);
   assert.equal(mixed?.priceMin, null);
-  assert.equal(parseTicketmaster({ ...event, dates: { start: { dateTime: '2027-03-14T19:00:00' } } }, 'Artist'), null);
+  assert.equal(parseTicketmaster({ ...event, dates: { start: { dateTime: '2027-03-14T19:00:00' } } }, 'Artist', undefined, identity), null);
   const thaiVenue = { ...event, _embedded: { venues: [{ ...event._embedded.venues[0], country: { countryCode: 'TH' } }] } };
   assert.equal(parseTicketmaster(thaiVenue, 'Artist'), null);
   assert.equal(parseTicketmaster(thaiVenue, undefined, 'TH')?.country, 'TH');
+});
+
+test('Ticketmaster requires identity evidence even for an exact performer name', () => {
+  const event = (name: string, externalLinks = {}) => ({ _embedded: { attractions: [{ id: 'other-atlas', name, externalLinks }] } });
+  const identity = { aliases: ['ATLAS'], attractionIds: [], officialUrls: ['https://www.instagram.com/atlas_official_th/'] };
+  assert.equal(matchTicketmasterAttraction(event('Atlas'), identity), null);
+  assert.equal(matchTicketmasterAttraction(event('Dame Atlas'), identity), null);
+  assert.equal(matchTicketmasterAttraction(event('Atlas', { instagram: [{ url: 'https://www.instagram.com/foreign_atlas/' }] }), identity), null);
+  assert.equal(matchTicketmasterAttraction(event('Atlas', { instagram: [{ url: 'https://instagram.com/atlas_official_th/?ref=tm' }] }), identity)?.id, 'other-atlas');
+});
+
+test('Ticketmaster checks each festival performer and supports verified IDs and Thai aliases', () => {
+  const event = { _embedded: { attractions: [{ id: 'other', name: 'Another Band' }, { id: 'verified', name: 'Bodyslam' }] } };
+  const identity = { aliases: ['บอดี้สแลม', 'Bodyslam'], attractionIds: ['verified'], officialUrls: [] };
+  assert.equal(matchTicketmasterAttraction(event, identity)?.id, 'verified');
+  assert.equal(matchTicketmasterAttraction({ name: 'Bodyslam', _embedded: {} }, identity), null);
+  assert.equal(matchTicketmasterAttraction(event, { ...identity, aliases: ['BUS'] }), null);
+});
+
+test('Ticketmaster social identity preserves profile IDs and handles X links', () => {
+  const event = (url: string) => ({ _embedded: { attractions: [{ id: 'id', name: 'Artist', externalLinks: { homepage: [{ url }] } }] } });
+  assert.equal(matchTicketmasterAttraction(event('https://facebook.com/profile.php?id=2'), { aliases: ['Artist'], attractionIds: [], officialUrls: ['https://facebook.com/profile.php?id=1'] }), null);
+  assert.equal(matchTicketmasterAttraction(event('https://twitter.com/artist/'), { aliases: ['Artist'], attractionIds: [], officialUrls: ['https://x.com/artist'] })?.id, 'id');
+  assert.equal(matchTicketmasterAttraction(event('https://instagram.com/'), { aliases: ['Artist'], attractionIds: [], officialUrls: ['https://instagram.com/'] }), null);
+});
+
+test('Ticketmaster domestic import rejects a foreign or missing venue country', () => {
+  const event = { name: 'Local Live', url: 'https://www.ticketmaster.com/event/id', dates: { start: { dateTime: '2026-11-08T18:00:00Z' } }, _embedded: { venues: [{ country: { countryCode: 'GB' } }] } };
+  assert.equal(parseTicketmaster(event, undefined, 'TH'), null);
+  assert.equal(parseTicketmaster({ ...event, _embedded: { venues: [{ country: {} }] } }, undefined, 'TH'), null);
+  assert.equal(parseTicketmaster({ ...event, _embedded: { venues: [{ country: { countryCode: 'TH' } }] } }, undefined, 'TH')?.country, 'TH');
+});
+
+test('Ticketmaster foreign keyword results must identify the requested performer', () => {
+  const event = {
+    name: 'Dame Atlas with Special Guests', url: 'https://www.ticketweb.ca/event/dame-atlas/15026313',
+    _embedded: {
+      venues: [{ name: "Lee's Palace", country: { countryCode: 'CA' } }],
+      attractions: [{ id: 'unrelated-performer', name: 'Dame Atlas' }],
+    },
+    dates: { start: { dateTime: '2027-02-21T02:00:00Z' } },
+  };
+  assert.equal(parseTicketmaster(event, 'ATLAS'), null);
 });

@@ -3,7 +3,8 @@ import * as cheerio from 'cheerio';
 import { one, query } from './db.js';
 import { config } from './config.js';
 
-type Event = { title: string; url: string; startsAt: string | null; endsAt?: string | null; timeTba?: boolean; venue?: string | null; city?: string | null; country?: string; description?: string | null; image?: string | null; priceMin?: number | null; priceMax?: number | null; currency?: string; status?: string; artist?: string | null };
+type Event = { title: string; url: string; startsAt: string | null; endsAt?: string | null; timeTba?: boolean; venue?: string | null; city?: string | null; country?: string; description?: string | null; image?: string | null; priceMin?: number | null; priceMax?: number | null; currency?: string; status?: string; artist?: string | null; ticketmasterAttractionId?: string; artistEvidenceUrl?: string };
+type TicketmasterIdentity = { aliases: string[]; attractionIds: string[]; officialUrls: string[]; evidenceUrls?: Record<string, string> };
 type Source = { name: string; url: string; host: string; linkPattern: RegExp };
 const sources: Source[] = [
   { name: 'ThaiTicketMajor', url: 'https://www.thaiticketmajor.com/concert/', host: 'thaiticketmajor.com', linkPattern: /\/(concert|performance)\//i },
@@ -249,12 +250,48 @@ function localTimeToUtc(localDate: string, localTime: string, zone: string): str
   } catch { return null; }
 }
 
-export function parseTicketmaster(item: unknown, artist?: string, countryFilter?: string): Event | null {
+function identityUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    let host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'x.com') host = 'twitter.com';
+    const path = url.pathname.replace(/\/+$/, '').toLowerCase();
+    // A platform home page cannot identify a performer.
+    if (!path && ['facebook.com', 'instagram.com', 'twitter.com'].includes(host)) return null;
+    return host + path + (url.pathname === '/profile.php' ? '?' + url.searchParams.get('id') : '');
+  } catch { return null; }
+}
+
+export function matchTicketmasterAttraction(item: unknown, identity: TicketmasterIdentity) {
+  const embedded = record(record(item)._embedded);
+  const attractions = Array.isArray(embedded.attractions) ? embedded.attractions.map(record) : [];
+  const names = new Set(identity.aliases.map(normalized));
+  const official = new Set(identity.officialUrls.map(identityUrl).filter(Boolean));
+  for (const attraction of attractions) {
+    const id = str(attraction.id), name = str(attraction.name);
+    if (!id || !name || !names.has(normalized(name))) continue;
+    if (identity.attractionIds.includes(id)) return { id, evidenceUrl: identity.evidenceUrls?.[id] || str(attraction.url) || undefined };
+    for (const entries of Object.values(record(attraction.externalLinks))) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        const url = str(record(entry).url);
+        const canonical = url ? identityUrl(url) : null;
+        if (url && canonical && official.has(canonical)) return { id, evidenceUrl: url };
+      }
+    }
+  }
+  return null;
+}
+
+export function parseTicketmaster(item: unknown, artist?: string, countryFilter?: string, identity?: TicketmasterIdentity): Event | null {
   const data = record(item);
   const venue = record(record(data._embedded).venues instanceof Array ? (record(data._embedded).venues as unknown[])[0] : null);
   const country = str(record(venue.country).countryCode)?.toUpperCase();
   const title = str(data.name), url = str(data.url);
   if (!title || !url || !validUrl(url) || !country || !/^[A-Z]{2}$/.test(country) || (countryFilter ? country !== countryFilter : country === 'TH')) return null;
+  const performer = !countryFilter && artist ? matchTicketmasterAttraction(item, identity || { aliases: [artist], attractionIds: [], officialUrls: [] }) : null;
+  if (!countryFilter && (!artist || !performer)) return null;
   const dates = record(data.dates), start = record(dates.start);
   if (start.dateTBA === true || start.dateTBD === true) return null;
   const explicit = str(start.dateTime);
@@ -273,7 +310,7 @@ export function parseTicketmaster(item: unknown, artist?: string, countryFilter?
   const maximums = validCurrency ? priceBearing.map((range) => money(range.max)).filter((value): value is number => value !== null) : [];
   const rawStatus = str(record(dates.status).code)?.toLowerCase();
   const status = rawStatus === 'canceled' || rawStatus === 'cancelled' ? 'cancelled' : rawStatus === 'postponed' ? 'postponed' : 'scheduled';
-  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name), city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist };
+  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name), city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist, ...(performer ? { ticketmasterAttractionId: performer.id, artistEvidenceUrl: performer.evidenceUrl } : {}) };
 }
 
 export function parseLiveNation(markup: string, pageUrl: string): Event[] {
@@ -416,6 +453,8 @@ async function saveEvent(source: string, event: Event) {
     if (!preciseRound) await query('INSERT INTO concert_performances(concert_id,starts_at,ends_at,time_tba,status,source_url) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(concert_id,starts_at) DO UPDATE SET ends_at=COALESCE(EXCLUDED.ends_at,concert_performances.ends_at), time_tba=concert_performances.time_tba AND EXCLUDED.time_tba, status=EXCLUDED.status, source_url=EXCLUDED.source_url, updated_at=now()', [concertId, date.toISOString(), event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.url]);
   }
   if (event.artist) await query('INSERT INTO concert_artists(concert_id,artist_id) SELECT $1,id FROM artists WHERE lower(name)=lower($2) OR lower(name_en)=lower($2) ON CONFLICT DO NOTHING', [concertId, event.artist]);
+  // Foreign Ticketmaster performers have been verified; title keywords cannot add other artists.
+  if (source === 'Ticketmaster' && event.country !== 'TH') return !existingSource;
   const titleWords = ' ' + normalized(event.title) + ' ';
   const catalog = await query<{ id: string; name: string; name_en: string | null }>("SELECT id,name,name_en FROM artists WHERE kind <> 'member'");
   for (const artist of catalog) {
@@ -474,7 +513,7 @@ async function ticketmasterPage(url: URL) {
   nextTicketmasterRequestAt = Date.now() + 250;
   const response = await fetch(url, { signal: AbortSignal.timeout(config.ticketmasterTimeoutMs) });
   if (!response.ok) throw new Error('Ticketmaster HTTP ' + response.status);
-  return response.json() as Promise<{ _embedded?: { events?: unknown[] }; page?: { totalPages?: number } }>;
+  return response.json() as Promise<{ _embedded?: { events?: unknown[]; attractions?: unknown[] }; page?: { totalPages?: number } }>;
 }
 
 export async function syncTicketmasterThailand() {
@@ -503,21 +542,56 @@ export async function syncTicketmasterThailand() {
   });
 }
 
-async function syncForeign() {
+export async function syncForeign() {
   if (!config.ticketmasterKey) await runSource('Ticketmaster', 'concert', async () => { throw new Error('Ticketmaster API key not configured'); });
   if (!config.bandsintownAppId) await runSource('Bandsintown', 'concert', async () => { throw new Error('Bandsintown app ID not configured'); });
   if (config.ticketmasterKey) await runSource('Ticketmaster', 'concert', async () => {
     let count = 0; let seen = 0;
-    const artists = await query<{ name_en: string | null; name: string }>('SELECT name,name_en FROM artists');
+    const artists = await query<{ name_en: string | null; name: string; attraction_ids: string[]; official_urls: string[]; evidence_urls: Record<string, string> }>(`SELECT a.name,a.name_en,
+      ARRAY(SELECT attraction_id FROM ticketmaster_artist_identities i WHERE i.artist_id=a.id) AS attraction_ids,
+      COALESCE((SELECT jsonb_object_agg(attraction_id,evidence_url) FROM ticketmaster_artist_identities i WHERE i.artist_id=a.id),'{}'::jsonb) AS evidence_urls,
+      ARRAY(SELECT url FROM social_accounts s WHERE s.artist_id=a.id AND s.verified_at IS NOT NULL) AS official_urls
+      FROM artists a`);
     for (const artist of artists) {
-      const url = new URL(config.ticketmasterBaseUrl + '/events.json');
-      url.searchParams.set('apikey', config.ticketmasterKey); url.searchParams.set('keyword', artist.name_en || artist.name); url.searchParams.set('classificationName', 'music'); url.searchParams.set('size', '20');
-      const data = await ticketmasterPage(url);
-      for (const item of data._embedded?.events || []) {
-        const event = parseTicketmaster(item, artist.name);
-        if (!event) continue;
-        seen++;
-        if (await saveEvent('Ticketmaster', event)) count++;
+      if (!artist.attraction_ids.length && !artist.official_urls.length) continue;
+      const identity = { aliases: [artist.name, artist.name_en].filter((name): name is string => !!name), attractionIds: artist.attraction_ids, officialUrls: artist.official_urls, evidenceUrls: artist.evidence_urls };
+      // Resolve the performer first; event keyword searches also match venues and unrelated acts.
+      if (!identity.attractionIds.length) {
+        for (let page = 0; page < 10; page++) {
+          const url = new URL(config.ticketmasterBaseUrl + '/attractions.json');
+          url.searchParams.set('apikey', config.ticketmasterKey);
+          url.searchParams.set('keyword', artist.name_en || artist.name);
+          url.searchParams.set('size', '100'); url.searchParams.set('page', String(page));
+          const data = await ticketmasterPage(url);
+          const items = data._embedded?.attractions || [];
+          if (!Array.isArray(items)) throw new Error('Ticketmaster returned an invalid attraction list');
+          for (const item of items) {
+            const match = matchTicketmasterAttraction({ _embedded: { attractions: [item] } }, identity);
+            if (!match?.evidenceUrl || identity.attractionIds.includes(match.id)) continue;
+            identity.attractionIds.push(match.id);
+            identity.evidenceUrls[match.id] = match.evidenceUrl;
+          }
+          if (!data.page?.totalPages || page + 1 >= data.page.totalPages) break;
+          if (page === 9) throw new Error('Ticketmaster attraction search reached the 10-page limit; coverage is incomplete');
+        }
+      }
+      if (!identity.attractionIds.length) continue;
+      for (let page = 0; page < 10; page++) {
+        const url = new URL(config.ticketmasterBaseUrl + '/events.json');
+        url.searchParams.set('apikey', config.ticketmasterKey);
+        url.searchParams.set('attractionId', identity.attractionIds.join(','));
+        url.searchParams.set('classificationName', 'music'); url.searchParams.set('size', '100'); url.searchParams.set('page', String(page));
+        const data = await ticketmasterPage(url);
+        const items = data._embedded?.events || [];
+        if (!Array.isArray(items)) throw new Error('Ticketmaster returned an invalid event list');
+        for (const item of items) {
+          const event = parseTicketmaster(item, artist.name, undefined, identity);
+          if (!event) continue;
+          seen++;
+          if (await saveEvent('Ticketmaster', event)) count++;
+        }
+        if (!data.page?.totalPages || page + 1 >= data.page.totalPages) break;
+        if (page === 9) throw new Error('Ticketmaster foreign search reached the 10-page limit; coverage is incomplete');
       }
     }
     return { seen, changed: count };

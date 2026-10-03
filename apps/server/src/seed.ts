@@ -56,6 +56,9 @@ for (const profile of curatedArtistProfiles) {
     }
   }
 }
+await query(`INSERT INTO ticketmaster_artist_identities(artist_id,attraction_id,evidence_url)
+  SELECT id,'K8vZ9172buf','https://www.electricbrixton.uk.com/events/bodyslam-world-tour-2026/'
+  FROM artists WHERE slug='bodyslam' ON CONFLICT DO NOTHING`);
 if (config.adminEmail && config.adminPassword) {
   if (config.adminPassword.length < 12) throw Error('ADMIN_PASSWORD must contain at least 12 characters');
   await query('INSERT INTO users(email,display_name,password_hash,role) VALUES($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING', [config.adminEmail.toLowerCase(), 'ผู้ดูแล', await hashPassword(config.adminPassword), 'admin']);
