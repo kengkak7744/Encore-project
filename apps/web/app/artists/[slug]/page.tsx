@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowUpRight, Heart, Music2 } from 'lucide-react';
 import { useData } from '../../../components/use-data';
 import { ArtistCard, ConcertCard } from '../../../components/cards';
+import { ArtistImageAttribution, ArtistPopularity } from '../../../components/artist-evidence';
 import { api, type Artist } from '../../../lib/api';
 
 export default function ArtistDetail({ params }: { params: Promise<{ slug: string }> }) {
@@ -28,7 +29,7 @@ export default function ArtistDetail({ params }: { params: Promise<{ slug: strin
     {result.error && <p className="notice error">{result.error}</p>}
     {artist && <>
       <section className="detail-hero">
-        <div className="detail-avatar">{artist.image_url ? <img src={artist.image_url} alt="" /> : <Music2 size={70} />}</div>
+        <div><div className="detail-avatar">{artist.image_url ? <img src={artist.image_url} alt="" style={artist.image_credit ? { objectFit: 'contain' } : undefined} /> : <Music2 size={70} />}</div><ArtistImageAttribution artist={artist}/></div>
         <div>
           <span className="eyebrow">{artist.kind === 'band' ? 'วงดนตรี' : artist.kind === 'member' ? 'สมาชิกวง' : 'ศิลปินเดี่ยว'}</span>
           <h1>{artist.name}</h1>
@@ -55,6 +56,8 @@ export default function ArtistDetail({ params }: { params: Promise<{ slug: strin
           </article>)}
         </div>
       </section>}
+
+      <ArtistPopularity artist={artist}/>
 
       <section className="section">
         <div className="section-heading"><h2>คอนเสิร์ตของศิลปิน</h2></div>

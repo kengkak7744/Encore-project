@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { one, pool, query } from './db.js';
 import { migrate } from './migrate.js';
 import { biographyFor, curatedArtistProfiles } from './artist-profiles.js';
+import { applyArtistAudit } from './artist-audit.js';
 
 // Candidate catalogue. verified_at stays NULL until an editor checks an official source.
 const artists: [string, string, 'band' | 'solo' | 'member', string[]][] = [
@@ -55,6 +56,17 @@ for (const profile of curatedArtistProfiles) {
       await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [artist.id, account.evidenceUrl, 'หลักฐานช่องทางทางการ']);
     }
   }
+}
+const auditClient = await pool.connect();
+try {
+  await auditClient.query('BEGIN');
+  await applyArtistAudit(auditClient);
+  await auditClient.query('COMMIT');
+} catch (error) {
+  await auditClient.query('ROLLBACK');
+  throw error;
+} finally {
+  auditClient.release();
 }
 await query(`INSERT INTO ticketmaster_artist_identities(artist_id,attraction_id,evidence_url)
   SELECT id,'K8vZ9172buf','https://www.electricbrixton.uk.com/events/bodyslam-world-tour-2026/'

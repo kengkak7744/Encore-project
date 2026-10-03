@@ -1,21 +1,23 @@
 import Link from 'next/link';
 import { ArrowUpRight, CalendarDays, MapPin, Music2 } from 'lucide-react';
 import { type Artist, type Concert, date, price, stale } from '../lib/api';
+import { ArtistImageAttribution } from './artist-evidence';
 
 export function ArtistCard({ artist }: { artist: Artist }) {
-  return <Link href={'/artists/' + artist.slug} className="artist-card"><div className="artist-avatar">{artist.image_url ? <img src={artist.image_url} alt=""/> : <Music2 size={30}/>}</div><div><span className="eyebrow">{artist.kind === 'band' ? 'วงดนตรี' : artist.kind === 'member' ? 'สมาชิกวง' : 'ศิลปินเดี่ยว'}</span><h3>{artist.name}</h3><p>{artist.genres?.join(' · ') || 'ยังไม่ระบุแนวเพลง'}</p></div><ArrowUpRight size={19} className="card-arrow"/></Link>;
+  return <div className="artist-card-with-credit"><Link href={'/artists/' + artist.slug} className="artist-card"><div className="artist-avatar">{artist.image_url ? <img src={artist.image_url} alt="" style={artist.image_credit ? { objectFit: 'contain' } : undefined}/> : <Music2 size={30}/>}</div><div><span className="eyebrow">{artist.kind === 'band' ? 'วงดนตรี' : artist.kind === 'member' ? 'สมาชิกวง' : 'ศิลปินเดี่ยว'}</span><h3>{artist.name}</h3><p>{artist.genres?.join(' · ') || 'ยังไม่ระบุแนวเพลง'}</p></div><ArrowUpRight size={19} className="card-arrow"/></Link><ArtistImageAttribution artist={artist}/></div>;
 }
 
 export function ArtistProfileCard({ artist }: { artist: Artist }) {
   return <article className="artist-profile-card">
     <div className="artist-profile-heading">
-      <div className="artist-avatar">{artist.image_url ? <img src={artist.image_url} alt=""/> : <Music2 size={30}/>}</div>
+      <div className="artist-avatar">{artist.image_url ? <img src={artist.image_url} alt="" style={artist.image_credit ? { objectFit: 'contain' } : undefined}/> : <Music2 size={30}/>}</div>
       <div>
         <span className="eyebrow">{artist.kind === 'band' ? 'วงดนตรี' : artist.kind === 'member' ? 'สมาชิกวง' : 'ศิลปินเดี่ยว'}</span>
         <h2><Link href={'/artists/' + artist.slug}>{artist.name}</Link></h2>
         <p className="artist-profile-genres">{artist.genres?.join(' · ') || 'ยังไม่ระบุแนวเพลง'}</p>
       </div>
     </div>
+    <ArtistImageAttribution artist={artist}/>
     <p className="artist-profile-bio">{artist.bio || 'ยังไม่มีประวัติที่ตรวจแหล่งข้อมูลแล้ว'}</p>
     <div className="artist-profile-sources">
       <span>แหล่งที่มา</span>

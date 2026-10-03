@@ -1,5 +1,6 @@
 import { artistBiographies, type BiographySection } from './artist-biographies.js';
 import { verifiedInstagramAccounts } from './artist-instagram-accounts.js';
+import { reviewedOfficialAccounts } from './artist-official-accounts.js';
 
 export type CuratedArtistProfile = {
   slug: string;
@@ -17,7 +18,7 @@ export const curatedArtistProfiles: CuratedArtistProfile[] = [
   { slug: 'bodyslam', bio: 'วงดนตรีไทยในกลุ่มศิลปิน GMM Music เจ้าของเพลง “งมงาย” และ “อกหัก”', genres: ['rock'], sourceUrl: 'https://www.gmmgrammy.com/newsroom/news-single.php?id=10418', sourceLabel: 'GMM Music' },
   { slug: 'tilly-birds', bio: 'วงอัลเทอร์เนทีฟไทย สมาชิกหลักคือ 3RD, Billy และ Milo', genres: ['alternative', 'pop', 'rock'], sourceUrl: 'https://www.tillybirds.com/about', sourceLabel: 'เว็บไซต์ Tilly Birds', accounts: [{ platform: 'website', url: 'https://www.tillybirds.com/', evidenceUrl: 'https://www.tillybirds.com/about' }] },
   { slug: 'three-man-down', bio: 'วงร็อกไทยที่มีสมาชิก 4 คน ภายใต้การดูแลของ Kruengkao', genres: ['rock'], sourceUrl: 'https://www.kruengkao.com/en/artist/three-man-down', sourceLabel: 'Kruengkao Group' },
-  { slug: 'cocktail', bio: 'วงร็อกไทยที่มีสมาชิก 4 คน และสร้างผลงานเพลงต่อเนื่องมากว่าสองทศวรรษ', genres: ['rock'], sourceUrl: 'https://universalmusic.fr/artistes/36484961805', sourceLabel: 'Universal Music' },
+  { slug: 'cocktail', bio: 'วงร็อกไทยที่ Universal Music บันทึกสมาชิก โอม เชาว์ ปาร์ค และฟิลิปส์ พร้อมผลงานตั้งแต่ปี 2545 ถึง Yours Ever ในปี 2567', genres: ['rock'], sourceUrl: 'https://universalmusic.fr/artistes/36484961805', sourceLabel: 'Universal Music' },
   { slug: 'slot-machine', bio: 'วงร็อกไทย สมาชิกคือ Foet, Gak และ Vit', genres: ['rock'], sourceUrl: 'https://slotmachine.band/bio.php', sourceLabel: 'เว็บไซต์ Slot Machine', accounts: [{ platform: 'website', url: 'https://slotmachine.band/', evidenceUrl: 'https://slotmachine.band/bio.php' }] },
   { slug: 'getsunova', bio: 'วงดนตรีไทยจาก White Music ในเครือ GMM Music เจ้าของเพลง “ไกลแค่ไหนคือใกล้”', genres: ['pop', 'rock'], sourceUrl: 'https://www.gmmgrammy.com/newsroom/news-single.php?id=10199', sourceLabel: 'GMM Music' },
   { slug: 'polycat', bio: 'วงซินธ์ป็อปไทยจากค่าย Smallroom มีสมาชิก 3 คน', genres: ['synth-pop', 'indie'], sourceUrl: 'https://smallroom.co.th/artist/1/polycat', sourceLabel: 'Smallroom' },
@@ -44,7 +45,7 @@ export const curatedArtistProfiles: CuratedArtistProfile[] = [
   { slug: 'violette-wautier', bio: 'ศิลปินและนักแสดงไทย ผู้สร้างอัลบั้มภาษาอังกฤษ “Glitter and Smoke” และอัลบั้มภาษาไทย “Your Girl”', genres: ['pop'], sourceUrl: 'https://www.universal-music.co.jp/violette-wautier/biography/', sourceLabel: 'Universal Music Japan' },
   { slug: 'pp-krit', bio: 'กฤษฏ์ อำนวยเดชกร เป็นนักร้องและนักแสดงชาวไทยที่ใช้ชื่อศิลปิน PP Krit', genres: ['pop'], sourceUrl: 'https://www.universal-music.co.jp/billkin-and-ppkrit/biography/', sourceLabel: 'Universal Music Japan' },
   { slug: 'billkin', bio: 'ศิลปินเดี่ยวชาวไทยที่เผยแพร่ผลงานเพลงในชื่อ Billkin', genres: ['pop'], sourceUrl: 'https://www.universal-music.co.jp/billkin/', sourceLabel: 'Universal Music Japan', accounts: [{ platform: 'instagram', url: 'https://www.instagram.com/bbillkin/', evidenceUrl: 'https://www.universal-music.co.jp/billkin/' }] },
-  { slug: 'palmy', bio: 'ปาล์มมี่ หรือ อีฟ ปานเจริญ เป็นศิลปินเดี่ยวในค่าย genie records', genres: ['pop'], sourceUrl: 'https://www.gmmgrammy.com/newsroom/news-single.php?id=8888', sourceLabel: 'GMM Music' },
+  { slug: 'palmy', bio: 'ปาล์มมี่ หรือ อีฟ ปานเจริญ เป็นศิลปินเดี่ยวที่ข่าว GMM ปี 2564 ระบุสังกัด genie records และข่าวปี 2569 ยังกล่าวถึงในรายชื่อศิลปิน GMM Music', genres: ['pop'], sourceUrl: 'https://www.gmmgrammy.com/newsroom/news-single.php?id=8888', sourceLabel: 'GMM Music' },
   { slug: 'stamp-apiwat', bio: 'แสตมป์ อภิวัชร์ เป็นนักร้องและนักแต่งเพลงชาวไทยที่มีผลงานในต่างประเทศ', genres: ['pop'], sourceUrl: 'https://avexnet.jp/column/1000398', sourceLabel: 'Avex', accounts: [{ platform: 'instagram', url: 'https://www.instagram.com/stampapiwat/', evidenceUrl: 'https://avexnet.jp/column/1000398' }] },
   { slug: 'tattoo-colour', bio: 'วงป็อปไทยจากค่าย Smallroom มีสมาชิก 4 คน', genres: ['pop'], sourceUrl: 'https://www.smallroom.co.th/artist/2/tattoo-colour', sourceLabel: 'Smallroom' },
   { slug: 'scrubb', bio: 'ดูโอ้ป็อปไทย ประกอบด้วยเมื่อยเป็นนักร้อง และบอลเล่นกีตาร์', genres: ['pop', 'indie'], sourceUrl: 'https://www.universal-music.co.jp/scrubb/biography/', sourceLabel: 'Universal Music Japan' },
@@ -74,6 +75,7 @@ export function biographyFor(profile: CuratedArtistProfile): BiographySection[] 
 }
 
 for (const profile of curatedArtistProfiles) {
+  profile.accounts = [...(profile.accounts || []), ...(reviewedOfficialAccounts[profile.slug] || [])];
   const instagram = verifiedInstagramAccounts[profile.slug];
   if (instagram) profile.accounts = [...(profile.accounts || []), {
     platform: 'instagram', url: `https://www.instagram.com/${instagram.handle}/`, evidenceUrl: instagram.evidenceUrl,

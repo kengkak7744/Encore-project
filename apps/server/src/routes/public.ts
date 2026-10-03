@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { one, query } from '../db.js';
 import { config } from '../config.js';
+import { imageCreditJoin, imageCreditSelect } from '../artist-audit.js';
 
 export const publicRoutes = Router();
 
@@ -31,23 +32,23 @@ publicRoutes.get('/artists', async (req, res) => {
   const count = await one<{ total: string }>('SELECT count(*)::text AS total FROM artists a ' + filter, params);
   params.push((page - 1) * 20);
   const items = await query(
-    'SELECT a.id, a.slug, a.name, a.name_en, a.kind, a.bio, a.image_url, a.genres, a.popularity_rank, a.verified_at, ' +
+    'SELECT a.id, a.slug, a.name, a.name_en, a.kind, a.bio, a.image_url, a.genres, a.popularity_rank, a.verified_at, ' + imageCreditSelect + ', ' +
     "(SELECT count(*)::integer FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = a.id AND (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND c.status = 'scheduled') AS upcoming_count, " +
     "COALESCE((SELECT json_agg(json_build_object('source_url', s.source_url, 'label', s.label, 'checked_at', s.checked_at) ORDER BY s.label) FROM artist_sources s WHERE s.artist_id = a.id), '[]'::json) AS sources " +
-    'FROM artists a ' + filter + ' ORDER BY a.popularity_rank ASC NULLS LAST, a.name ASC LIMIT 20 OFFSET $' + params.length,
+    'FROM artists a ' + imageCreditJoin + ' ' + filter + ' ORDER BY a.popularity_rank ASC NULLS LAST, a.name ASC LIMIT 20 OFFSET $' + params.length,
     params,
   );
   res.json({ items, page, total: Number(count?.total || 0), pageSize: 20 });
 });
 
 publicRoutes.get('/artists/:slug', async (req, res) => {
-  const artist = await one('SELECT * FROM artists WHERE slug = $1', [req.params.slug]);
+  const artist = await one('SELECT a.*, ' + imageCreditSelect + ' FROM artists a ' + imageCreditJoin + ' WHERE a.slug = $1', [req.params.slug]);
   if (!artist) { res.status(404).json({ error: 'ไม่พบศิลปิน' }); return; }
   const accounts = await query('SELECT platform, handle, url, verified_at, last_checked_at, last_success_at, last_error FROM social_accounts WHERE artist_id = $1 AND verified_at IS NOT NULL ORDER BY platform', [artist.id]);
   const sources = await query('SELECT source_url, label, checked_at FROM artist_sources WHERE artist_id = $1 ORDER BY label', [artist.id]);
   const biography = await query('SELECT position, heading, body, source_url, source_label, checked_at, generated_model FROM artist_biography_sections WHERE artist_id = $1 ORDER BY position', [artist.id]);
-  const members = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.member_id WHERE am.band_id = $1 ORDER BY a.name', [artist.id]);
-  const bands = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.band_id WHERE am.member_id = $1 ORDER BY a.name', [artist.id]);
+  const members = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url, ' + imageCreditSelect + ' FROM artist_memberships am JOIN artists a ON a.id = am.member_id ' + imageCreditJoin + ' WHERE am.band_id = $1 ORDER BY a.name', [artist.id]);
+  const bands = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url, ' + imageCreditSelect + ' FROM artist_memberships am JOIN artists a ON a.id = am.band_id ' + imageCreditJoin + ' WHERE am.member_id = $1 ORDER BY a.name', [artist.id]);
   const upcoming = await query("SELECT c.id, c.slug, c.title, c.starts_at, c.time_tba, c.venue, c.city, c.country_code, c.status, c.image_url, c.price_min, c.currency, c.last_verified_at FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = $1 AND (c.starts_at >= now() OR c.starts_at IS NULL OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) ORDER BY c.starts_at ASC NULLS LAST LIMIT 12", [artist.id]);
   res.json({ ...artist, accounts, sources, biography, members, bands, upcoming });
 });
@@ -86,7 +87,7 @@ publicRoutes.get('/concerts', async (req, res) => {
 publicRoutes.get('/concerts/:id', async (req, res) => {
   const concert = await one('SELECT * FROM concerts WHERE id::text = $1 OR slug = $1', [req.params.id]);
   if (!concert) { res.status(404).json({ error: 'ไม่พบคอนเสิร์ต' }); return; }
-  const artists = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM concert_artists ca JOIN artists a ON a.id = ca.artist_id WHERE ca.concert_id = $1 ORDER BY a.name', [concert.id]);
+  const artists = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url, ' + imageCreditSelect + ' FROM concert_artists ca JOIN artists a ON a.id = ca.artist_id ' + imageCreditJoin + ' WHERE ca.concert_id = $1 ORDER BY a.name', [concert.id]);
   const sources = await query('SELECT source_name, source_url, source_role, fetched_at FROM concert_sources WHERE concert_id = $1 ORDER BY CASE source_role WHEN \'organizer\' THEN 0 WHEN \'ticket\' THEN 1 ELSE 2 END, fetched_at DESC', [concert.id]);
   const performances = await query('SELECT id,starts_at,ends_at,time_tba,status,source_url FROM concert_performances WHERE concert_id=$1 ORDER BY starts_at', [concert.id]);
   res.json({ ...concert, artists, sources, performances });
