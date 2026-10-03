@@ -24,8 +24,8 @@ export async function relevantKnowledge(question: string) {
 
 export async function enrichKnowledge() {
   const rows = await query<{ id: string; type: string; content: string; hash: string }>(`SELECT id,'concert' AS type,
-    concat_ws(' | ',title,venue,city,starts_at::text,status,price_min::text,price_max::text) AS content,
-    md5(concat_ws(' | ',title,venue,city,starts_at::text,status,price_min::text,price_max::text)) AS hash
+    concat_ws(' | ',title,venue,city,starts_at::text,status,price_min::text,price_max::text,price_note) AS content,
+    md5(concat_ws(' | ',title,venue,city,starts_at::text,status,price_min::text,price_max::text,price_note)) AS hash
     FROM concerts WHERE starts_at >= now() OR (time_tba AND (starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)
     UNION ALL SELECT id,'news' AS type,body AS content,md5(body) AS hash FROM news_items WHERE body IS NOT NULL
     LIMIT 100`);

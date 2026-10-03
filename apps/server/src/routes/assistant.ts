@@ -16,7 +16,7 @@ assistantRoutes.get('/recommendations', async (_req, res) => {
       UNION ALL
       SELECT unnest(a.genres) FROM attendance at JOIN concert_artists ca ON ca.concert_id=at.concert_id JOIN artists a ON a.id=ca.artist_id WHERE at.user_id=$1
     )
-    SELECT c.id,c.slug,c.title,c.starts_at,c.city,c.venue,c.price_min,c.price_max,c.currency,c.status,
+    SELECT c.id,c.slug,c.title,c.starts_at,c.city,c.venue,c.price_min,c.price_max,c.price_note,c.currency,c.status,
       bool_or(f.user_id IS NOT NULL) AS followed_artist,
       count(DISTINCT t.genre)::integer AS matching_genres,
       array_agg(DISTINCT a.name) FILTER (WHERE a.id IS NOT NULL) AS artists
@@ -52,8 +52,8 @@ assistantRoutes.post('/chat', async (req, res) => {
       res.json({ answer: rows.length ? rows.map((row) => `${row.title} — ${formatDate(row.starts_at, row.time_tba)} (${row.source_url || 'ไม่มีลิงก์ต้นทาง'})`).join('\n') : 'ยังไม่มีงานของศิลปินที่ติดตามในข้อมูลที่ระบบตรวจพบ ลองติดตามศิลปินเพิ่มเติม', sources: rows.map((row) => row.source_url).filter(Boolean) }); return;
     }
     if (intent === 'concerts' || directArtist || directCity) {
-      const concerts = await query<{ title: string; starts_at: string | null; time_tba: boolean; venue: string | null; city: string | null; status: string; price_min: string | null; currency: string; source_url: string | null }>(`SELECT c.title,c.starts_at,c.time_tba,c.venue,c.city,c.status,c.price_min,c.currency,cs.source_url FROM concerts c LEFT JOIN LATERAL (SELECT source_url FROM concert_sources WHERE concert_id=c.id ORDER BY CASE source_role WHEN 'organizer' THEN 0 ELSE 1 END LIMIT 1) cs ON true WHERE (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.concert_id=c.id AND ca.artist_id=$1)) AND ($2::text IS NULL OR c.city ILIKE $2) ORDER BY c.starts_at LIMIT 5`, [directArtist?.id || null, directCity?.city || null]);
-      const lines = concerts.map((item) => `${item.title} — ${formatDate(item.starts_at, item.time_tba)} · ${[item.venue, item.city].filter(Boolean).join(', ') || 'ยังไม่ระบุสถานที่'} · ${item.status}${item.price_min ? ` · บัตรเริ่ม ${Number(item.price_min).toLocaleString('th-TH')} ${item.currency}` : ' · ยังไม่ทราบราคา'}\nแหล่ง: ${item.source_url || 'ยังไม่มีลิงก์ต้นทาง'}`);
+      const concerts = await query<{ title: string; starts_at: string | null; time_tba: boolean; venue: string | null; city: string | null; status: string; price_min: string | null; price_note: string | null; currency: string; source_url: string | null }>(`SELECT c.title,c.starts_at,c.time_tba,c.venue,c.city,c.status,c.price_min,c.price_note,c.currency,cs.source_url FROM concerts c LEFT JOIN LATERAL (SELECT source_url FROM concert_sources WHERE concert_id=c.id ORDER BY CASE source_role WHEN 'organizer' THEN 0 ELSE 1 END LIMIT 1) cs ON true WHERE (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.concert_id=c.id AND ca.artist_id=$1)) AND ($2::text IS NULL OR c.city ILIKE $2) ORDER BY c.starts_at LIMIT 5`, [directArtist?.id || null, directCity?.city || null]);
+      const lines = concerts.map((item) => `${item.title} — ${formatDate(item.starts_at, item.time_tba)} · ${[item.venue, item.city].filter(Boolean).join(', ') || 'ยังไม่ระบุสถานที่'} · ${item.status}${item.price_min ? ` · ราคาต้นทาง ${Number(item.price_min).toLocaleString('th-TH')} ${item.currency}` : ' · ยังไม่ทราบราคา'}${item.price_note ? ' · ' + item.price_note : ''}\nแหล่ง: ${item.source_url || 'ยังไม่มีลิงก์ต้นทาง'}`);
       res.json({ answer: lines.length ? lines.join('\n\n') : 'ยังไม่พบคอนเสิร์ตที่ตรงกับคำถามในข้อมูลที่ระบบรองรับ', sources: concerts.map((item) => item.source_url).filter(Boolean) }); return;
     }
     const knowledge = await relevantKnowledge(message);
@@ -73,9 +73,9 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   const nights = Math.max(0, Math.min(14, Number(req.body?.nights) || 0));
   const people = Math.max(1, Math.min(10, Number(req.body?.people) || 1));
   const distanceKm = Math.max(0, Math.min(3000, Number(req.body?.distanceKm) || 0));
-  const concert = await one<{ id: string; title: string; city: string | null; venue: string | null; country_code: string; price_min: string | null; price_max: string | null; currency: string; starts_at: string | null; last_verified_at: string | null }>('SELECT id,title,city,venue,country_code,price_min,price_max,currency,starts_at,last_verified_at FROM concerts WHERE id=$1', [concertId]);
+  const concert = await one<{ id: string; title: string; city: string | null; venue: string | null; country_code: string; price_min: string | null; price_max: string | null; currency: string; starts_at: string | null; last_verified_at: string | null; price_note: string | null }>('SELECT id,title,city,venue,country_code,price_min,price_max,currency,starts_at,last_verified_at,price_note FROM concerts WHERE id=$1', [concertId]);
   if (!concert) { res.status(404).json({ error: 'ไม่พบคอนเสิร์ต' }); return; }
-  const ticket = concert.price_min ? Number(concert.price_min) * people : null;
+  const ticket = concert.price_min != null && !concert.price_note ? Number(concert.price_min) * people : null;
   const destination = concert.city || 'ไม่ทราบเมือง';
   const sameCity = origin && origin.toLocaleLowerCase() === destination.toLocaleLowerCase();
   let usedDistanceKm = distanceKm;
@@ -88,7 +88,7 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   }
   const distanceNote = distanceSource === 'Google Routes' ? 'ระยะทางถนนจาก Google Routes' : 'ระยะทางที่กรอก';
   const estimates = [
-    { kind: 'ticket', label: 'บัตรคอนเสิร์ต', amount: ticket, priceType: ticket === null ? 'unavailable' : 'observed', note: ticket === null ? 'ยังไม่มีราคาบัตร' : 'อ้างอิงราคาต่ำสุดที่พบ ไม่ใช่ราคาสด', observedAt: concert.last_verified_at },
+    { kind: 'ticket', label: 'บัตรคอนเสิร์ต', amount: ticket, priceType: ticket === null ? 'unavailable' : 'observed', note: ticket === null ? (concert.price_note || 'ยังไม่มีราคาบัตร') : 'อ้างอิงราคาต่ำสุดที่พบ ไม่ใช่ราคาสด', observedAt: concert.last_verified_at },
     { kind: 'bus', label: 'รถทัวร์ไปกลับ', amount: sameCity ? 0 : usedDistanceKm ? Math.round(usedDistanceKm * 2 * 1.5 * people) : null, priceType: sameCity || usedDistanceKm ? 'estimate' : 'unavailable', note: usedDistanceKm ? `ประมาณ 1.5 บาท/กม./คน จาก${distanceNote}; ยังไม่ใช่ราคา 12Go` : 'กรอกระยะทางเพื่อประเมิน' },
     { kind: 'train', label: 'รถไฟไปกลับ', amount: sameCity ? 0 : usedDistanceKm ? Math.round(usedDistanceKm * 2 * 0.9 * people) : null, priceType: sameCity || usedDistanceKm ? 'estimate' : 'unavailable', note: usedDistanceKm ? `ประมาณ 0.9 บาท/กม./คน จาก${distanceNote}; ระยะทางรถไฟจริงอาจต่างออกไป` : 'กรอกระยะทางเพื่อประเมิน' },
     { kind: 'flight', label: 'เครื่องบินไปกลับ', amount: sameCity ? 0 : null, priceType: sameCity ? 'estimate' : 'unavailable', note: sameCity ? 'อยู่เมืองเดียวกัน' : 'ยังไม่มีราคาเชื่อมต่อจากผู้ให้บริการ' },

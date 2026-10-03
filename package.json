@@ -1,7 +1,10 @@
 {
   "name": "artist-tracker",
   "private": true,
-  "workspaces": ["apps/web", "apps/server"],
+  "workspaces": [
+    "apps/web",
+    "apps/server"
+  ],
   "scripts": {
     "dev:web": "npm run dev -w @artist-tracker/web",
     "dev:api": "npm run dev:api -w @artist-tracker/server",
@@ -12,6 +15,8 @@
     "instagram:sync": "npm run instagram:sync -w @artist-tracker/server --",
     "build": "npm run build -w @artist-tracker/server && npm run build -w @artist-tracker/web",
     "typecheck": "npm run typecheck -w @artist-tracker/server && npm run typecheck -w @artist-tracker/web",
-    "test": "npm run test -w @artist-tracker/server"
+    "test": "npm run test -w @artist-tracker/server",
+    "concerts:sync": "npm run concerts:sync -w @artist-tracker/server --",
+    "concerts:report": "npm run concerts:report -w @artist-tracker/server --"
   }
 }

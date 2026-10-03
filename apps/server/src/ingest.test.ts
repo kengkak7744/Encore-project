@@ -37,7 +37,7 @@ test('Eventpop public markup extracts local date without inventing price', () =>
   const events = parseEventpop(body, 'https://www.eventpop.me/e/123');
   assert.equal(events.length, 1);
   assert.equal(events[0].startsAt, '2027-02-12T10:00:00.000Z');
-  assert.equal(events[0].priceMin, undefined);
+  assert.equal(events[0].priceMin, null);
 });
 
 test('Eventpop date range marks show time as unannounced', () => {
