@@ -89,11 +89,12 @@ test('Eventpop Open Graph fallback requires a Thai music event with explicit tim
 });
 
 test('The Concert single-round page reads Thai date and overnight end time', () => {
-  const body = `<h1>Thai Music Concert</h1><div class="location-direct">Impact Hall<a href="https://www.google.com/maps/search/?api=1&amp;query=13.9,100.6">Map</a></div><div id="date_show_time" data-date="12 ก.พ. 2570, 20:00 - 01:00 น."></div><div class="price">฿1,200</div><select-concert-btn has_round="false"></select-concert-btn>`;
+  const body = `<meta property="og:image" content="https://res.theconcert.com/poster.jpg"><h1>Thai Music Concert</h1><div class="location-direct">Impact Hall<a href="https://www.google.com/maps/search/?api=1&amp;query=13.9,100.6">Map</a></div><div id="date_show_time" data-date="12 ก.พ. 2570, 20:00 - 01:00 น."></div><div class="price">฿1,200</div><select-concert-btn has_round="false"></select-concert-btn>`;
   const parsed = parseTheConcert(body, 'https://www.theconcert.com/p/123');
   assert.equal(parsed[0].startsAt, '2027-02-12T13:00:00.000Z');
   assert.equal(parsed[0].endsAt, '2027-02-12T18:00:00.000Z');
   assert.equal(parsed[0].priceMin, 1200);
+  assert.equal(parsed[0].image, 'https://res.theconcert.com/poster.jpg');
   assert.equal(parseTheConcert(body.replace('has_round="false"', 'has_round="true"'), 'https://www.theconcert.com/p/123').length, 0);
   assert.equal(parseTheConcert(body.replace('12 ก.พ.', '31 ก.พ.'), 'https://www.theconcert.com/p/123').length, 0);
 });
@@ -173,4 +174,32 @@ test('Ticketmaster foreign keyword results must identify the requested performer
     dates: { start: { dateTime: '2027-02-21T02:00:00Z' } },
   };
   assert.equal(parseTicketmaster(event, 'ATLAS'), null);
+});
+
+test('Ticketmaster imports the largest landscape event image rather than a generic fallback', () => {
+  const event = {
+    name: 'Maroon 5 Asia 2027 in Bangkok', url: 'https://www.ticketmaster.com/event/image-test',
+    dates: { start: { dateTime: '2027-01-01T12:00:00Z' } },
+    _embedded: { venues: [{ country: { countryCode: 'TH' } }] },
+    images: [
+      { url: 'https://s1.ticketm.net/generic.jpg', ratio: '16_9', width: 4096, fallback: true },
+      { url: 'https://s1.ticketm.net/small.jpg', ratio: '16_9', width: 205, fallback: false },
+      { url: 'https://s1.ticketm.net/portrait.jpg', ratio: '3_2', width: 2400, fallback: false },
+      { url: 'https://s1.ticketm.net/large.jpg', ratio: '16_9', width: 2048, fallback: false },
+    ],
+  };
+  assert.equal(parseTicketmaster(event, undefined, 'TH')?.image, 'https://s1.ticketm.net/large.jpg');
+});
+
+test('Ticketmaster retains unknown images when absent, generic or unsafe and accepts other source aspect ratios', () => {
+  const event = {
+    name: 'Image test', url: 'https://www.ticketmaster.com/event/image-test',
+    dates: { start: { dateTime: '2027-01-01T12:00:00Z' } },
+    _embedded: { venues: [{ country: { countryCode: 'TH' } }] },
+  };
+  const parse = (images: unknown) => parseTicketmaster({ ...event, images }, undefined, 'TH');
+  assert.equal(parse(undefined)?.image, null);
+  assert.equal(parse({ url: 'https://example.com/image.jpg' })?.image, null);
+  assert.equal(parse([null, { url: 'javascript:alert(1)' }, { url: 'http://example.com/image.jpg' }, { url: 'https://example.com/generic.jpg', fallback: true }])?.image, null);
+  assert.equal(parse([{ url: 'https://example.com/portrait.jpg', ratio: '3_2' }])?.image, 'https://example.com/portrait.jpg');
 });

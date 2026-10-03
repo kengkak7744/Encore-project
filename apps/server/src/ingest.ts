@@ -202,7 +202,8 @@ export function parseTheConcert(markup: string, pageUrl: string): Event[] {
   if (Date.parse(endsAt) < Date.parse(startsAt)) endsAt = new Date(Date.parse(endsAt) + 86400000).toISOString();
   const priceText = $('.price').first().text().trim();
   const priceMin = priceText.match(/^฿\s*([\d,]+(?:\.\d{1,2})?)$/) ? money(priceText.replace(/[฿,\s]/g, '')) : null;
-  return [{ title, url: pageUrl, startsAt, endsAt, venue, country: 'TH', priceMin, currency: 'THB' }];
+  const image = str($('meta[property="og:image"]').attr('content'));
+  return [{ title, url: pageUrl, startsAt, endsAt, venue, country: 'TH', priceMin, currency: 'THB', image: image && validUrl(image) ? image : null }];
 }
 
 export function parseTicketmelon(markup: string, pageUrl: string): Event[] {
@@ -310,7 +311,12 @@ export function parseTicketmaster(item: unknown, artist?: string, countryFilter?
   const maximums = validCurrency ? priceBearing.map((range) => money(range.max)).filter((value): value is number => value !== null) : [];
   const rawStatus = str(record(dates.status).code)?.toLowerCase();
   const status = rawStatus === 'canceled' || rawStatus === 'cancelled' ? 'cancelled' : rawStatus === 'postponed' ? 'postponed' : 'scheduled';
-  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name), city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist, ...(performer ? { ticketmasterAttractionId: performer.id, artistEvidenceUrl: performer.evidenceUrl } : {}) };
+  const images = (Array.isArray(data.images) ? data.images : []).map(record)
+    .filter((image) => image.fallback !== true && str(image.url) && validUrl(str(image.url)!));
+  const width = (image: Record<string, unknown>) => typeof image.width === 'number' && Number.isFinite(image.width) && image.width > 0 ? image.width : 0;
+  images.sort((a, b) => Number(b.ratio === '16_9') - Number(a.ratio === '16_9') || width(b) - width(a));
+  const image = images.length ? str(images[0].url) : null;
+  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name), city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), image, priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist, ...(performer ? { ticketmasterAttractionId: performer.id, artistEvidenceUrl: performer.evidenceUrl } : {}) };
 }
 
 export function parseLiveNation(markup: string, pageUrl: string): Event[] {
