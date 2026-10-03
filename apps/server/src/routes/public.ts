@@ -4,9 +4,9 @@ import { config } from '../config.js';
 
 export const publicRoutes = Router();
 
-function pageNumber(value: unknown) {
+function pageNumber(value: unknown, max = 100) {
   const number = Number(value || 1);
-  return Number.isInteger(number) ? Math.max(1, Math.min(number, 100)) : 1;
+  return Number.isSafeInteger(number) ? Math.max(1, Math.min(number, max)) : 1;
 }
 
 function searchTerm(value: unknown) {
@@ -93,12 +93,15 @@ publicRoutes.get('/concerts/:id', async (req, res) => {
 });
 
 publicRoutes.get('/news', async (req, res) => {
-  const page = pageNumber(req.query.page);
+  const requestedPage = pageNumber(req.query.page, Number.MAX_SAFE_INTEGER);
   const artistId = searchTerm(req.query.artistId);
   const params: unknown[] = [];
   const where: string[] = [];
   if (/^[0-9a-f-]{36}$/i.test(artistId)) { params.push(artistId); where.push('n.artist_id = $' + params.length); }
   const filter = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = await one<{ count: string }>('SELECT count(*)::text AS count FROM news_items n ' + filter, params);
+  const totalItems = Number(total?.count || 0);
+  const page = Math.min(requestedPage, Math.max(1, Math.ceil(totalItems / 20)));
   const user = res.locals.user as { id: string } | null;
   params.push(user?.id || null);
   const userParam = '$' + params.length;
@@ -108,10 +111,10 @@ publicRoutes.get('/news', async (req, res) => {
   const items = await query(
     'SELECT n.*, a.name AS artist_name, a.slug AS artist_slug, (f.user_id IS NOT NULL) AS followed, (n.last_verified_at < now() - ' + staleParam + '::integer * interval \'1 minute\') AS stale FROM news_items n JOIN artists a ON a.id = n.artist_id ' +
     'LEFT JOIN follows f ON f.artist_id = n.artist_id AND f.user_id = ' + userParam + ' ' + filter +
-    ' ORDER BY (f.user_id IS NOT NULL) DESC, n.published_at DESC NULLS LAST LIMIT 20 OFFSET $' + params.length,
+    ' ORDER BY (f.user_id IS NOT NULL) DESC, n.published_at DESC NULLS LAST, n.id DESC LIMIT 20 OFFSET $' + params.length,
     params,
   );
-  res.json({ items, page, pageSize: 20 });
+  res.json({ items, total: totalItems, page, pageSize: 20 });
 });
 
 publicRoutes.get('/status', async (_req, res) => {
