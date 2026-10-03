@@ -24,6 +24,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
       WEB_ORIGIN: http://localhost:3000
       OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-qwen3-embedding:0.6b}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
@@ -52,6 +54,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
       OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-qwen3-embedding:0.6b}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
@@ -80,6 +84,26 @@ services:
     depends_on: [api]
     ports:
       - "127.0.0.1:3000:3000"
+  biography-worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "apps/server/dist/biography-worker.js"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://artist:artist@db:5432/artist_tracker}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      BIOGRAPHY_OLLAMA_URL: http://host.docker.internal:11434
+      BIOGRAPHY_MODEL: ${BIOGRAPHY_MODEL:-encore-biography:qwen3.8-27b}
+      BIOGRAPHY_ENABLED: ${BIOGRAPHY_ENABLED:-true}
+      BIOGRAPHY_WINDOW_START: ${BIOGRAPHY_WINDOW_START:-23:00}
+      BIOGRAPHY_WINDOW_END: ${BIOGRAPHY_WINDOW_END:-00:00}
+      BIOGRAPHY_MAX_PER_NIGHT: ${BIOGRAPHY_MAX_PER_NIGHT:-10}
+      BIOGRAPHY_TIMEOUT_SECONDS: ${BIOGRAPHY_TIMEOUT_SECONDS:-240}
+    depends_on:
+      db:
+        condition: service_healthy
   seed:
     build:
       context: .

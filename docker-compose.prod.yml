@@ -23,6 +23,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
       WEB_ORIGIN: https://${DOMAIN:?set public domain}
       OLLAMA_URL: ${OLLAMA_URL:?set private VPN address of Ollama}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-qwen3-embedding:0.6b}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
@@ -48,6 +50,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
       OLLAMA_URL: ${OLLAMA_URL:?set private VPN address of Ollama}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-qwen3-embedding:0.6b}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_MONTHLY_LIMIT_THB: ${X_MONTHLY_LIMIT_THB:-350}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
@@ -74,6 +78,27 @@ services:
     environment:
       NODE_ENV: production
     depends_on: [api]
+  biography-worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "apps/server/dist/biography-worker.js"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set URL-encoded password in a private environment file}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      BIOGRAPHY_OLLAMA_URL: ${OLLAMA_URL:?set private VPN address of the user's Ollama}
+      BIOGRAPHY_MODEL: ${BIOGRAPHY_MODEL:-encore-biography:qwen3.8-27b}
+      BIOGRAPHY_ENABLED: ${BIOGRAPHY_ENABLED:-true}
+      BIOGRAPHY_WINDOW_START: ${BIOGRAPHY_WINDOW_START:-23:00}
+      BIOGRAPHY_WINDOW_END: ${BIOGRAPHY_WINDOW_END:-00:00}
+      BIOGRAPHY_MAX_PER_NIGHT: ${BIOGRAPHY_MAX_PER_NIGHT:-10}
+      BIOGRAPHY_TIMEOUT_SECONDS: ${BIOGRAPHY_TIMEOUT_SECONDS:-240}
+    depends_on:
+      db:
+        condition: service_healthy
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

@@ -45,7 +45,7 @@ publicRoutes.get('/artists/:slug', async (req, res) => {
   if (!artist) { res.status(404).json({ error: 'ไม่พบศิลปิน' }); return; }
   const accounts = await query('SELECT platform, handle, url, verified_at, last_checked_at, last_success_at, last_error FROM social_accounts WHERE artist_id = $1 AND verified_at IS NOT NULL ORDER BY platform', [artist.id]);
   const sources = await query('SELECT source_url, label, checked_at FROM artist_sources WHERE artist_id = $1 ORDER BY label', [artist.id]);
-  const biography = await query('SELECT position, heading, body, source_url, source_label, checked_at FROM artist_biography_sections WHERE artist_id = $1 ORDER BY position', [artist.id]);
+  const biography = await query('SELECT position, heading, body, source_url, source_label, checked_at, generated_model FROM artist_biography_sections WHERE artist_id = $1 ORDER BY position', [artist.id]);
   const members = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.member_id WHERE am.band_id = $1 ORDER BY a.name', [artist.id]);
   const bands = await query('SELECT a.id, a.slug, a.name, a.kind, a.image_url FROM artist_memberships am JOIN artists a ON a.id = am.band_id WHERE am.member_id = $1 ORDER BY a.name', [artist.id]);
   const upcoming = await query("SELECT c.id, c.slug, c.title, c.starts_at, c.time_tba, c.venue, c.city, c.country_code, c.status, c.image_url, c.price_min, c.currency, c.last_verified_at FROM concert_artists ca JOIN concerts c ON c.id = ca.concert_id WHERE ca.artist_id = $1 AND (c.starts_at >= now() OR c.starts_at IS NULL OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) ORDER BY c.starts_at ASC NULLS LAST LIMIT 12", [artist.id]);
@@ -118,5 +118,10 @@ publicRoutes.get('/status', async (_req, res) => {
   const rows = await query<{ source_name: string; category: string; last_started_at: string | null; last_success_at: string | null; last_error: string | null; last_count: number; enabled: boolean }>('SELECT source_name, category, last_started_at, last_success_at, last_error, last_count, enabled FROM source_state ORDER BY category, source_name');
   const sources = rows.map((source) => ({ ...source, stale: !source.last_success_at || Date.now() - new Date(source.last_success_at).getTime() > (source.category === 'news' ? config.socialStaleAfterMinutes : 120) * 60 * 1000 }));
   const counts = await one('SELECT (SELECT count(*)::integer FROM artists) AS artists, (SELECT count(*)::integer FROM concerts) AS concerts, (SELECT count(*)::integer FROM news_items) AS news');
-  res.json({ sources, counts, updatedAt: new Date().toISOString() });
+  const biographyState = await one('SELECT enabled,model,window_start,window_end,max_per_night,last_checked_at,last_error FROM biography_worker_state WHERE id=1');
+  const biographyCounts = await one(`SELECT
+    (SELECT count(*)::integer FROM artists a WHERE NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)) AS pending,
+    (SELECT count(*)::integer FROM biography_runs WHERE status='published') AS published`);
+  const biographyRuns = await query('SELECT a.name AS artist_name,a.slug AS artist_slug,r.status,r.started_at,r.finished_at FROM biography_runs r JOIN artists a ON a.id=r.artist_id ORDER BY r.started_at DESC LIMIT 5');
+  res.json({ sources, counts, biography: { state: biographyState, ...biographyCounts, runs: biographyRuns }, updatedAt: new Date().toISOString() });
 });

@@ -35,7 +35,7 @@ export default function ArtistDetail({ params }: { params: Promise<{ slug: strin
           <p>{artist.bio || artist.genres?.join(' · ') || 'ยังไม่มีรายละเอียด'}</p>
           <div className="tag-row">
             {artist.genres?.map((genre) => <span className="tag" key={genre}>{genre}</span>)}
-            <span className="tag">{artist.verified_at ? 'ตรวจแหล่งประวัติแล้ว' : 'รอตรวจแหล่งประวัติ'}</span>
+            <span className="tag">{artist.biography?.some((section) => section.generated_model) ? 'ประวัติเรียบเรียงด้วย AI' : artist.verified_at ? 'ตรวจแหล่งประวัติแล้ว' : 'รอตรวจแหล่งประวัติ'}</span>
           </div>
           <button className="button primary" onClick={follow}><Heart size={17} /> ติดตามศิลปิน</button>
           {message && <p className="inline-message">{message}</p>}
@@ -44,6 +44,7 @@ export default function ArtistDetail({ params }: { params: Promise<{ slug: strin
 
       {!!artist.biography?.length && <section className="section artist-biography" aria-labelledby="artist-biography-title">
         <div className="section-heading"><h2 id="artist-biography-title">ประวัติของ {artist.name}</h2></div>
+        {artist.biography.some((section) => section.generated_model) && <p className="muted">ข้อความเรียบเรียงอัตโนมัติจากแหล่งอ้างอิง ยังไม่ได้ตรวจทานโดยผู้ดูแล</p>}
         <div className="artist-biography-sections">
           {artist.biography.map((section) => <article className="artist-biography-section" key={section.position}>
             <h3>{section.heading}</h3>

@@ -6,6 +6,9 @@
     "dev:web": "npm run dev -w @artist-tracker/web",
     "dev:api": "npm run dev:api -w @artist-tracker/server",
     "dev:worker": "npm run dev:worker -w @artist-tracker/server",
+    "dev:biography": "npm run dev:biography -w @artist-tracker/server",
+    "biography:preview": "npm run biography:preview -w @artist-tracker/server --",
+    "biography:setup": "npm run biography:setup -w @artist-tracker/server",
     "build": "npm run build -w @artist-tracker/server && npm run build -w @artist-tracker/web",
     "typecheck": "npm run typecheck -w @artist-tracker/server && npm run typecheck -w @artist-tracker/web",
     "test": "npm run test -w @artist-tracker/server"

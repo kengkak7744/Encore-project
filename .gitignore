@@ -11,6 +11,7 @@ coverage/
 /docs/
 /doc/
 /AGENTS.md
+/.local/
 /agent.md
 /.agents/
 /.codex/

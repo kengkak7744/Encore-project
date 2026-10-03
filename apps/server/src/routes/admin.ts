@@ -45,6 +45,21 @@ adminRoutes.put('/artists/:id/members/:memberId', async (req, res) => {
   res.json({ ok: true });
 });
 
+adminRoutes.put('/artists/:id/sources', async (req, res) => {
+  if (!uuid.test(req.params.id as string)) { res.status(400).json({ error: 'รหัสไม่ถูกต้อง' }); return; }
+  let source: URL;
+  try { source = new URL(req.body?.url); if (source.protocol !== 'https:' || source.username || source.password) throw Error(); }
+  catch { res.status(400).json({ error: 'ต้องใช้ URL แหล่งข้อมูล HTTPS' }); return; }
+  const label = String(req.body?.label || source.hostname).trim().slice(0, 160);
+  await query('INSERT INTO artist_sources(artist_id,source_url,label) VALUES($1,$2,$3) ON CONFLICT(artist_id,source_url) DO UPDATE SET label=$3,checked_at=now()', [req.params.id, source.toString(), label]);
+  res.json({ ok: true });
+});
+
+adminRoutes.get('/biography-runs', async (_req, res) => {
+  const items = await query('SELECT r.*,a.name AS artist_name,a.slug AS artist_slug FROM biography_runs r JOIN artists a ON a.id=r.artist_id ORDER BY r.started_at DESC LIMIT 50');
+  res.json({ items });
+});
+
 adminRoutes.post('/concerts', async (req, res) => {
   const body = req.body || {};
   if (!slug.test(String(body.slug || '')) || !String(body.title || '').trim()) { res.status(400).json({ error: 'ข้อมูลคอนเสิร์ตไม่ถูกต้อง' }); return; }
