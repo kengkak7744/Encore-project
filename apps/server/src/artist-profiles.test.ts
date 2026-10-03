@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { verifiedInstagramAccounts } from './artist-instagram-accounts.js';
 import { artistBiographies } from './artist-biographies.js';
 import { biographyFor, curatedArtistProfiles } from './artist-profiles.js';
 
@@ -33,4 +34,17 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
   assert.ok(aheye);
   assert.ok(biographyFor(aheye).length >= 4);
   assert.deepEqual(Object.keys(artistBiographies).sort(), slugs.filter((slug) => slug !== 'aheye-4eve').sort());
+});
+
+test('Each curated artist has a distinct Instagram profile with a reviewed source, including individual members', () => {
+  const handles = new Set<string>();
+  for (const profile of curatedArtistProfiles) {
+    const accounts = (profile.accounts || []).filter(account => account.platform === 'instagram');
+    assert.equal(accounts.length, 1, profile.slug);
+    const handle = new URL(accounts[0].url).pathname.split('/')[1].toLowerCase();
+    assert.match(handle, /^[a-z0-9._]+$/);
+    assert.ok(!handles.has(handle), `${profile.slug} must not reuse another artist's Instagram`);
+    handles.add(handle);
+  }
+  for (const slug of Object.keys(verifiedInstagramAccounts)) assert.ok(curatedArtistProfiles.some(profile => profile.slug === slug), slug);
 });

@@ -1,4 +1,5 @@
 import { artistBiographies, type BiographySection } from './artist-biographies.js';
+import { verifiedInstagramAccounts } from './artist-instagram-accounts.js';
 
 export type CuratedArtistProfile = {
   slug: string;
@@ -70,4 +71,11 @@ export const curatedArtistProfiles: CuratedArtistProfile[] = [
 
 export function biographyFor(profile: CuratedArtistProfile): BiographySection[] {
   return profile.biography ?? artistBiographies[profile.slug] ?? [];
+}
+
+for (const profile of curatedArtistProfiles) {
+  const instagram = verifiedInstagramAccounts[profile.slug];
+  if (instagram) profile.accounts = [...(profile.accounts || []), {
+    platform: 'instagram', url: `https://www.instagram.com/${instagram.handle}/`, evidenceUrl: instagram.evidenceUrl,
+  }];
 }

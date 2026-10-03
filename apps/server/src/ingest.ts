@@ -621,6 +621,14 @@ export async function syncForeign() {
   });
 }
 
+export class InstagramGraphError extends Error {
+  readonly rateLimited: boolean;
+  constructor(status: number, codes: number[]) {
+    super('Instagram Graph HTTP ' + status + (codes.length ? ' (codes ' + codes.join('/') + ')' : ''));
+    this.rateLimited = status === 429 || codes[0] === 4;
+  }
+}
+
 export async function instagramBusinessPosts(handle: string) {
   const username = handle.trim().replace(/^@/, '').toLowerCase();
   if (!/^[a-z0-9._]+$/.test(username)) throw new Error('Instagram username is invalid');
@@ -630,16 +638,24 @@ export async function instagramBusinessPosts(handle: string) {
   const url = new URL(`https://graph.facebook.com/${config.instagramGraphVersion}/${encodeURIComponent(config.instagramGraphUserId)}`);
   url.searchParams.set('fields', fields);
   const response = await fetch(url, { headers: { Authorization: 'Bearer ' + config.instagramGraphToken }, signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error('Instagram Graph HTTP ' + response.status);
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null) as { error?: { code?: unknown; error_subcode?: unknown } } | null;
+    // Keep only numeric diagnostics; Graph messages can contain request credentials.
+    const codes = [failure?.error?.code, failure?.error?.error_subcode].filter((value) => typeof value === 'number');
+    throw new InstagramGraphError(response.status, codes as number[]);
+  }
   const data = await response.json() as any;
   const discovery = data.business_discovery;
   if (!discovery?.id || String(discovery.username || '').toLowerCase() !== username || (discovery.media && !Array.isArray(discovery.media.data))) throw new Error('Instagram Business Discovery account unavailable');
   return instagramFeedPosts(discovery.media?.data);
 }
 
-export async function syncNews() {
-  for (const platform of ['x', 'facebook', 'instagram'] as const) await runSource(platform.toUpperCase(), 'news', async () => {
-    const accounts = await query<{ id: string; artist_id: string; external_id: string | null; handle: string | null }>('SELECT id,artist_id,external_id,handle FROM social_accounts WHERE platform=$1 AND verified_at IS NOT NULL', [platform]);
+export async function syncNews(options: { platform?: 'x' | 'facebook' | 'instagram'; artistSlug?: string } = {}) {
+  const platforms = (['x', 'facebook', 'instagram'] as const).filter((platform) => !options.platform || platform === options.platform);
+  for (const platform of platforms) await runSource(platform.toUpperCase(), 'news', async () => {
+    const accounts = await query<{ id: string; artist_id: string; external_id: string | null; handle: string | null }>(`SELECT s.id,s.artist_id,s.external_id,s.handle FROM social_accounts s
+      JOIN artists a ON a.id=s.artist_id WHERE s.platform=$1 AND s.verified_at IS NOT NULL
+      AND ($2::text IS NULL OR a.slug=$2) ORDER BY s.last_success_at NULLS FIRST,s.last_checked_at NULLS FIRST,a.slug,s.id`, [platform, options.artistSlug || null]);
     if (!accounts.length) throw new Error('No verified official accounts configured');
     if (platform === 'x' && !config.xBearerToken) throw new Error('X API token missing; automatic discovery unavailable');
     if (platform === 'facebook' && !config.metaToken) throw new Error('Meta access token missing; automatic discovery unavailable');
@@ -649,6 +665,7 @@ export async function syncNews() {
     const spent = platform === 'x' ? await one<{ total: string }>("SELECT COALESCE(sum(items_seen),0)::text AS total FROM sync_runs WHERE source_name='X' AND started_at >= date_trunc('month',now()) AND status='success'") : null;
     if (platform === 'x' && Number(spent?.total || 0) + 10 > monthlyLimit) throw new Error('X monthly read budget reached; see Developer Console spending limit');
     let count = 0, succeeded = 0;
+    let rateLimitError: string | null = null;
     for (const account of accounts) {
       if (platform === 'x' && count + Number(spent?.total || 0) + 10 > monthlyLimit) break;
       if (!account.external_id && platform === 'facebook') { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, 'Page ID required']); continue; }
@@ -681,11 +698,23 @@ export async function syncNews() {
         }
         await query('UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=null WHERE id=$1', [account.id]);
         succeeded++;
-      } catch (error) { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, error instanceof Error ? error.message : String(error)]); }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, message]);
+        if (platform === 'instagram' && error instanceof InstagramGraphError && error.rateLimited) {
+          rateLimitError = `${message}; ${succeeded}/${accounts.length} accounts read; retry next scheduled cycle`;
+          const remaining = accounts.slice(accounts.indexOf(account) + 1).map(item => item.id);
+          // Deferred accounts were not checked; preserve their check/success times and posts.
+          if (remaining.length) await query('UPDATE social_accounts SET last_error=$2 WHERE id=ANY($1::uuid[])', [remaining, 'Instagram sync deferred: API rate limit; retry next scheduled cycle']);
+          break;
+        }
+      }
     }
+    if (rateLimitError) throw new Error(rateLimitError);
     if (!succeeded) throw new Error('No verified account could be read; inspect account errors');
     return { seen: count, changed: count };
   });
+  if (options.platform) return;
   if (!config.amadeusClientId || !config.amadeusClientSecret) await runSource('Amadeus', 'travel', async () => { throw new Error('Amadeus credentials not configured'); });
   await runSource('12Go', 'travel', async () => { throw new Error('12Go affiliate/API access not configured'); });
 }
