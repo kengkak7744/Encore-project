@@ -28,3 +28,20 @@
 .artist-biography-section a{display:inline-flex;align-items:center;gap:4px;color:var(--forest);font-size:12px;font-weight:700}
 .artist-biography-section a:hover{text-decoration:underline}
 @media(max-width:650px){.artist-biography-sections{padding:4px 20px}.artist-biography-section{padding:22px 0}}
+
+.news-grid{align-items:start}
+.news-media{margin:18px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#f1f5ea}
+.news-media-image,.news-media-video{display:block;width:100%;max-height:520px;object-fit:contain;background:#edf1e7}
+.news-media-video{min-height:240px}
+.news-media-navigation{display:flex;justify-content:center;align-items:center;gap:18px;padding:10px;background:#fff}
+.news-media-navigation button{display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:white;color:var(--forest)}
+.news-media-navigation button:disabled{opacity:.35;cursor:default}
+.news-media-navigation span{font-size:12px;color:var(--muted)}
+.news-media-unavailable{position:relative;min-height:210px;display:grid;place-items:center}
+.news-media-unavailable>img{display:block;width:100%;max-height:460px;object-fit:contain}
+.news-media-unavailable>div{padding:20px;display:grid;justify-items:center;gap:10px;text-align:center}
+.news-media-unavailable>img+div{position:absolute;inset:0;background:#12271955;color:white;align-content:center}
+.news-media-unavailable small,.news-embed small{display:block;font-size:12px;line-height:1.6}
+.news-embed iframe{display:block;border:0;width:100%;height:600px;background:white}
+.news-embed small{padding:12px;color:var(--muted)}
+@media(max-width:650px){.news-media-image,.news-media-video{max-height:420px}.news-embed iframe{height:560px}}

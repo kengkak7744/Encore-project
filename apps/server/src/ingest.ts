@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { one, query } from './db.js';
 import { config } from './config.js';
+import { instagramFeedPosts, instagramMedia, newsUpsertSql } from './social-media.js';
 
 type Event = { title: string; url: string; startsAt: string | null; endsAt?: string | null; timeTba?: boolean; venue?: string | null; city?: string | null; country?: string; description?: string | null; image?: string | null; priceMin?: number | null; priceMax?: number | null; currency?: string; status?: string; artist?: string | null; ticketmasterAttractionId?: string; artistEvidenceUrl?: string };
 type TicketmasterIdentity = { aliases: string[]; attractionIds: string[]; officialUrls: string[]; evidenceUrls?: Record<string, string> };
@@ -625,7 +626,7 @@ export async function instagramBusinessPosts(handle: string) {
   if (!/^[a-z0-9._]+$/.test(username)) throw new Error('Instagram username is invalid');
   const expires = Date.parse(config.instagramGraphTokenExpiresAt);
   if (Number.isFinite(expires) && expires <= Date.now()) throw new Error('Instagram token expired');
-  const fields = `business_discovery.username(${username}){id,username,media.limit(20){id,caption,media_type,media_product_type,permalink,timestamp,media_url,thumbnail_url}}`;
+  const fields = `business_discovery.username(${username}){id,username,media.limit(20){id,caption,media_type,media_product_type,permalink,timestamp,media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}}}`;
   const url = new URL(`https://graph.facebook.com/${config.instagramGraphVersion}/${encodeURIComponent(config.instagramGraphUserId)}`);
   url.searchParams.set('fields', fields);
   const response = await fetch(url, { headers: { Authorization: 'Bearer ' + config.instagramGraphToken }, signal: AbortSignal.timeout(15000) });
@@ -633,11 +634,7 @@ export async function instagramBusinessPosts(handle: string) {
   const data = await response.json() as any;
   const discovery = data.business_discovery;
   if (!discovery?.id || String(discovery.username || '').toLowerCase() !== username || (discovery.media && !Array.isArray(discovery.media.data))) throw new Error('Instagram Business Discovery account unavailable');
-  return (discovery.media?.data || []).filter((post: any) => {
-    const product = String(post.media_product_type || '').toUpperCase();
-    const type = String(post.media_type || '').toUpperCase();
-    return (!product || product === 'FEED' || product === 'REELS') && ['IMAGE', 'CAROUSEL_ALBUM', 'VIDEO'].includes(type) && !(type === 'VIDEO' && !product);
-  }).map((post: any) => ({ ...post, media_url: String(post.media_product_type || '').toUpperCase() === 'REELS' ? post.thumbnail_url : post.media_url || post.thumbnail_url }));
+  return instagramFeedPosts(discovery.media?.data);
 }
 
 export async function syncNews() {
@@ -668,15 +665,18 @@ export async function syncNews() {
           posts = await instagramBusinessPosts(account.handle);
         } else {
           const edge = platform === 'facebook' ? 'posts' : 'media';
-          const fields = platform === 'facebook' ? 'id,message,created_time,permalink_url,full_picture' : 'id,caption,timestamp,permalink,media_url';
+          const fields = platform === 'facebook' ? 'id,message,created_time,permalink_url,full_picture' : 'id,caption,timestamp,permalink,media_type,media_product_type,media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}';
           const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/${edge}?fields=${fields}&limit=10`, { headers: { Authorization: 'Bearer ' + config.metaToken }, signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('Meta HTTP ' + response.status);
           posts = ((await response.json()) as any).data || [];
+          if (platform === 'instagram') posts = instagramFeedPosts(posts);
         }
         for (const post of posts) {
           const url = platform === 'x' ? `https://x.com/${account.handle}/status/${post.id}` : post.permalink_url || post.permalink;
           if (!url || !post.id) continue;
-          await query('INSERT INTO news_items(artist_id,platform,source_url,external_id,body,image_url,published_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(source_url) DO UPDATE SET body=EXCLUDED.body,last_verified_at=now()', [account.artist_id, platform, url, post.id, post.text || post.message || post.caption || null, post.full_picture || post.media_url || null, post.created_at || post.created_time || post.timestamp || null]);
+          const media = platform === 'instagram' ? instagramMedia(post) : [];
+          const image = platform === 'instagram' ? (media[0]?.type === 'image' ? media[0].url : media[0]?.thumbnailUrl) : post.full_picture;
+          await query(newsUpsertSql, [account.artist_id, platform, url, post.id, post.text || post.message || post.caption || null, image && validUrl(image) ? image : null, post.created_at || post.created_time || post.timestamp || null, JSON.stringify(media)]);
           count++;
         }
         await query('UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=null WHERE id=$1', [account.id]);
