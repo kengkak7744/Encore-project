@@ -1,6 +1,8 @@
 import { artistBiographies, type BiographySection } from './artist-biographies.js';
 import { verifiedInstagramAccounts } from './artist-instagram-accounts.js';
 import { reviewedOfficialAccounts } from './artist-official-accounts.js';
+import { expandedArtistProfiles } from './expanded-artist-profiles.js';
+import { expandedArtistAccountEvidence } from './expanded-artist-popularity.js';
 
 export type CuratedArtistProfile = {
   slug: string;
@@ -74,10 +76,16 @@ export function biographyFor(profile: CuratedArtistProfile): BiographySection[] 
   return profile.biography ?? artistBiographies[profile.slug] ?? [];
 }
 
+curatedArtistProfiles.push(...expandedArtistProfiles);
+
 for (const profile of curatedArtistProfiles) {
   profile.accounts = [...(profile.accounts || []), ...(reviewedOfficialAccounts[profile.slug] || [])];
   const instagram = verifiedInstagramAccounts[profile.slug];
   if (instagram) profile.accounts = [...(profile.accounts || []), {
     platform: 'instagram', url: `https://www.instagram.com/${instagram.handle}/`, evidenceUrl: instagram.evidenceUrl,
   }];
+  const expandedAccount = expandedArtistAccountEvidence.find(account => account.slug === profile.slug);
+  if (expandedAccount && !profile.accounts.some(account => account.platform === 'instagram')) {
+    profile.accounts.push({ platform: 'instagram', url: expandedAccount.url, evidenceUrl: expandedAccount.evidenceUrl });
+  }
 }

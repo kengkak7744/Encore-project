@@ -55,11 +55,22 @@ test('biography worker integration on an isolated database', { skip: !databaseUr
       await reset(); await manual(await artist());
       assert.equal((await run({ generate: async () => { throw new Error('must not generate'); } })).status, 'empty_queue');
     });
+    await t.test('an intentionally empty administrator biography never enters the queue',async () => {
+      await reset(); const id = await artist();
+      await database.query('UPDATE artists SET biography_manual_override=true WHERE id=$1',[id]);
+      assert.equal((await run({ generate: async () => { throw Error('must not generate'); } })).status,'empty_queue');
+      assert.equal((await database.query('SELECT count(*)::int n FROM biography_runs')).rows[0].n,0);
+    });
     await t.test('human biography added during generation wins', async () => {
       await reset(); const id = await artist();
       assert.equal((await run({ generate: async () => { await manual(id); return draft; } })).status, 'skipped');
       assert.equal((await database.query('SELECT body FROM artist_biography_sections')).rows[0].body, 'keep this human text');
       assert.equal((await database.query('SELECT * FROM artist_biography_sections')).rowCount, 1);
+    });
+    await t.test('administrator withholding biography during generation prevents publication even without sections',async () => {
+      await reset(); const id = await artist();
+      assert.equal((await run({ generate: async () => { await database.query('UPDATE artists SET biography_manual_override=true WHERE id=$1',[id]); return draft; } })).status,'skipped');
+      assert.equal((await database.query('SELECT count(*)::int n FROM artist_biography_sections')).rows[0].n,0);
     });
     await t.test('unavailable sources retry next night but never repeatedly in one night', async () => {
       await reset(); await artist();

@@ -18,3 +18,4 @@ coverage/
 *.pdf
 **/.env*
 !**/.env.example
+/apps/web/public/artist-images/ATTRIBUTION.md

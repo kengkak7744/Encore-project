@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateBiography } from './biography-generator.js';
 import { config } from './config.js';
+import { ollamaQueue } from './ollama-queue.js';
 import type { BiographyArtist, BiographySource } from './biography-policy.js';
 
 test('biography generation selects real evidence and allows only one factual repair', async (t) => {
   const originalFetch = globalThis.fetch;
+  t.mock.method(ollamaQueue,'run',async (job: { signal: AbortSignal },work: (signal: AbortSignal) => Promise<unknown>) => work(job.signal));
   const artist: BiographyArtist = { id: 'test', slug: 'test', name: 'วงตัวอย่าง', name_en: null, kind: 'band' };
   const quote = 'วงดนตรีตัวอย่างเริ่มทำเพลงร่วมกันและเผยแพร่ผลงานผ่านช่องทางของวง';
   const sources: BiographySource[] = [{ id: 'source-1', url: 'https://example.com/artist', label: 'Artist', text: quote, fetchedAt: '2026-10-03T16:00:00Z' }];
@@ -15,6 +17,8 @@ test('biography generation selects real evidence and allows only one factual rep
   const respond = (values: object[]) => {
     calls = 0;
     globalThis.fetch = async (_url, options) => {
+      if (String(_url).endsWith('/api/ps')) return Response.json({ models: [] });
+      if (String(_url).endsWith('/api/generate')) return Response.json({ done: true });
       const request = JSON.parse(String(options?.body));
       assert.equal(request.model, config.biographyModel);
       assert.equal(request.think, false);

@@ -28,7 +28,7 @@ export async function publishBiography(client: pg.PoolClient, artist: BiographyA
   try {
     assertActive();
     await client.query("SELECT set_config('statement_timeout',$1,true)", [String(Math.max(1, Math.min(10000, window.endsAt.getTime() - now().getTime())))]);
-    const locked = await client.query<{ updated_at: string }>('SELECT updated_at::text AS updated_at FROM artists WHERE id=$1 FOR UPDATE', [artist.id]);
+    const locked = await client.query<{ updated_at: string }>('SELECT updated_at::text AS updated_at FROM artists WHERE id=$1 AND NOT biography_manual_override FOR UPDATE', [artist.id]);
     const existing = await client.query('SELECT 1 FROM artist_biography_sections WHERE artist_id=$1 LIMIT 1', [artist.id]);
     if (!locked.rowCount || existing.rowCount || (artist.updated_at && artist.updated_at !== locked.rows[0].updated_at)) {
       await client.query('ROLLBACK');
@@ -74,7 +74,7 @@ export async function runBiographyCycle(options: CycleOptions = {}) {
     const total = await client.query<{ count: number }>('SELECT count(*)::integer AS count FROM biography_runs WHERE window_date=$1', [window.date]);
     if (total.rows[0].count >= config.biographyMaxPerNight) return { status: 'night_limit' };
     const candidates = await client.query<BiographyArtist>(`SELECT a.id,a.slug,a.name,a.name_en,a.kind,a.updated_at::text AS updated_at FROM artists a
-      WHERE NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)
+      WHERE NOT a.biography_manual_override AND NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)
       AND NOT EXISTS (SELECT 1 FROM biography_runs r WHERE r.artist_id=a.id AND r.window_date=$1)
       ORDER BY a.created_at,a.id LIMIT 1`, [window.date]);
     const artist = candidates.rows[0];

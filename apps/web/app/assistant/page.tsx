@@ -1,18 +1,49 @@
 'use client';
-import { useState } from 'react';
+import { Suspense,useEffect,useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
-import { Send, Sparkles } from 'lucide-react';
-import { api, price, type Concert, type Page } from '../../lib/api';
-import { useData } from '../../components/use-data';
+import { Send,Sparkles } from 'lucide-react';
+import { api,type Concert,type Page } from '../../lib/api';
+import { safeLink } from '../../lib/trip-prices';
+import { useData, useSessionReset } from '../../components/use-data';
+import { TripPlanner } from '../../components/trip-planner';
 
-type Estimate = { concert: { title: string; destination: string }; items: { kind: string; label: string; amount: number | null; priceType: 'estimate' | 'observed' | 'live' | 'unavailable'; note: string }[]; disclaimer: string };
 function AssistantContent() {
-  const params = useSearchParams(); const concerts = useData<Page<Concert>>('/concerts');
-  const [message, setMessage] = useState(''); const [answer, setAnswer] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const [concertId, setConcertId] = useState(params.get('concertId') || ''); const [origin, setOrigin] = useState('กรุงเทพมหานคร'); const [people, setPeople] = useState(1); const [nights, setNights] = useState(1); const [distanceKm, setDistanceKm] = useState(''); const [estimate, setEstimate] = useState<Estimate | null>(null);
-  async function send(event: React.FormEvent) { event.preventDefault(); if (!message.trim()) return; setBusy(true); setError(''); try { const data = await api<{ answer: string }>('/chat', { method: 'POST', body: JSON.stringify({ message }) }); setAnswer(data.answer); } catch (err) { setError((err as Error).message); } finally { setBusy(false); } }
-  async function calculate(event: React.FormEvent) { event.preventDefault(); setError(''); try { const data = await api<Estimate>('/trip-estimates', { method: 'POST', body: JSON.stringify({ concertId, origin, people, nights, distanceKm: Number(distanceKm) }) }); setEstimate(data); } catch (err) { setError((err as Error).message); } }
-  return <div className="container page"><div className="page-heading"><span className="eyebrow">YOUR FAN COMPANION</span><h1>ผู้ช่วยของ<br/><em>แฟนเพลง</em></h1><p>ถามจากข้อมูลศิลปิน ข่าว และคอนเสิร์ตที่ระบบมี พร้อมแยกงบที่ทราบราคาและงบประมาณ</p></div><div className="assistant-grid"><section className="assistant-panel"><div className="panel-heading"><Sparkles size={21}/><h2>ถาม Encore AI</h2></div><div className="chat-area">{answer ? <p className="chat-answer">{answer}</p> : <p className="chat-placeholder">ลองถามว่า “ศิลปินที่ติดตามมีงานที่ไหนบ้าง?” หรือ “มีคอนเสิร์ตในกรุงเทพเดือนนี้ไหม?”</p>}</div><form onSubmit={send} className="chat-form"><input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="พิมพ์คำถามของคุณ..."/><button disabled={busy} aria-label="ส่งคำถาม"><Send size={18}/></button></form><small>ต้องเข้าสู่ระบบ · หากเครื่อง AI ไม่พร้อม ข้อมูลศิลปินและคอนเสิร์ตยังใช้งานได้</small></section><section className="assistant-panel"><div className="panel-heading"><h2>วางแผนงบทริป</h2></div><form className="budget-form" onSubmit={calculate}><label>คอนเสิร์ต<select value={concertId} onChange={(e) => setConcertId(e.target.value)} required><option value="">เลือกคอนเสิร์ต</option>{concerts.data?.items.map((concert) => <option key={concert.id} value={concert.id}>{concert.title}</option>)}</select></label><label>เมืองต้นทาง<input value={origin} onChange={(e) => setOrigin(e.target.value)} required/></label><label>ระยะทางเที่ยวเดียว (กม.) สำหรับงบรถ/รถไฟ<input type="number" min="0" max="3000" value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} placeholder="ถ้าทราบ"/></label><div className="form-row"><label>จำนวนคน<input type="number" min="1" max="10" value={people} onChange={(e) => setPeople(Number(e.target.value))}/></label><label>จำนวนคืน<input type="number" min="0" max="14" value={nights} onChange={(e) => setNights(Number(e.target.value))}/></label></div><button className="button primary" type="submit">คำนวณงบ</button></form>{estimate && <div className="budget-results"><h3>{estimate.concert.title}</h3>{estimate.items.map((item) => <div key={item.kind} className="budget-line"><span>{item.label}<small>{item.priceType === 'live' ? 'ราคาสด' : item.priceType === 'observed' ? 'ราคาที่พบ' : item.priceType === 'estimate' ? 'ราคาประมาณ' : 'ไม่มีราคา'} · {item.note}</small></span><strong>{item.amount === null ? '—' : price(item.amount)}</strong></div>)}<p className="fine-print">{estimate.disclaimer}</p></div>}</section></div>{error && <p className="notice error">{error}</p>}</div>;
+  // Recheck idle sessions on focus and once a minute, as on account/admin pages.
+  useData('/me');
+  const params = useSearchParams();
+  const initialConcertId = params.get('concertId') || '';
+  const concerts = useData<Page<Concert>>('/concerts');
+  const [selectedConcert,setSelectedConcert] = useState<Concert | null>(null),[concertError,setConcertError] = useState('');
+  useEffect(() => {
+    let current = true; setSelectedConcert(null); setConcertError('');
+    if (initialConcertId) void api<Concert>('/concerts/'+encodeURIComponent(initialConcertId)).then(concert => { if (current) setSelectedConcert(concert); }).catch(err => { if (current) setConcertError(err.message); });
+    return () => { current = false; };
+  },[initialConcertId]);
+  const choices = concerts.data?.items || [];
+  const tripConcerts = selectedConcert && !choices.some(concert => concert.id===selectedConcert.id) ? [selectedConcert,...choices] : choices;
+  const [message,setMessage] = useState(''),[answer,setAnswer] = useState('');
+  const [sources,setSources] = useState<string[]>([]),[busy,setBusy] = useState(false),[error,setError] = useState('');
+  useSessionReset(() => { setMessage(''); setAnswer(''); setSources([]); setError(''); });
+  async function send(event: React.FormEvent) {
+    event.preventDefault(); if (!message.trim()) return;
+    setBusy(true); setError(''); setAnswer(''); setSources([]);
+    try {
+      const data = await api<{ answer: string; sources: string[] }>('/chat',{ method: 'POST',body: JSON.stringify({ message }) });
+      setAnswer(data.answer); setSources(data.sources || []);
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  }
+  return <div className="container page">
+    <div className="page-heading"><span className="eyebrow">YOUR FAN COMPANION</span><h1>ผู้ช่วยของ<br/><em>แฟนเพลง</em></h1><p>ถามจากข้อมูลศิลปิน ข่าว และคอนเสิร์ตที่ระบบมี พร้อมวางแผนงบทริปจากราคาที่คุณเลือก</p></div>
+    <div className="assistant-grid">
+      <section className="assistant-panel"><div className="panel-heading"><Sparkles size={21}/><h2>ถาม Encore AI</h2></div>
+        <div className="chat-area">{answer ? <p className="chat-answer">{answer}</p> : <p className="chat-placeholder">ลองถามว่า “ศิลปินที่ติดตามมีงานที่ไหนบ้าง?” หรือ “มีคอนเสิร์ตในกรุงเทพเดือนนี้ไหม?”</p>}</div>
+        <div>{[...new Set(sources)].filter(source => safeLink(source)).map((source,index) => <p key={source}><a href={safeLink(source)!} target="_blank" rel="noreferrer">แหล่งอ้างอิง {index+1}</a></p>)}</div>
+        <form onSubmit={send} className="chat-form"><input value={message} onChange={e => setMessage(e.target.value)} placeholder="พิมพ์คำถามของคุณ..."/><button disabled={busy} aria-label="ส่งคำถาม"><Send size={18}/></button></form>
+        <small>ต้องเข้าสู่ระบบ · หากเครื่อง AI ไม่พร้อม ข้อมูลศิลปินและคอนเสิร์ตยังใช้งานได้</small>
+        {error && <p className="notice error">{error}</p>}
+      </section>
+      <div>{(concertError || concerts.error) && <p className="notice error">{concertError || concerts.error}</p>}<TripPlanner key={initialConcertId} concerts={tripConcerts} initialConcertId={initialConcertId}/></div>
+    </div>
+  </div>;
 }
 export default function AssistantPage() { return <Suspense fallback={<p className="loading">กำลังโหลด...</p>}><AssistantContent/></Suspense>; }

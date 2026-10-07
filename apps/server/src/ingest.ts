@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { one, query } from './db.js';
 import { config } from './config.js';
-import { instagramFeedPosts, instagramMedia, newsUpsertSql } from './social-media.js';
+import { instagramFeedPosts, instagramMedia, newsUpsertSql, newsMetadataUpsertSql } from './social-media.js';
+import { withInstagramBudget, type InstagramBudget } from './instagram-budget.js';
 
 import type { ConcertEvent as Event, DiscoveryMetrics } from './concert-types.js';
 import { eventpopUrl, parseEventpopDetail } from './concert-parsers.js';
@@ -318,7 +319,13 @@ export async function saveEvent(source: string, event: Event) {
   if (!validUrl(event.url)) return false;
   const date = event.startsAt ? new Date(event.startsAt) : null;
   if (date && Number.isNaN(date.getTime())) return false;
-  const existingSource = await one<{ concert_id: string }>(`SELECT concert_id FROM concert_sources WHERE source_url=$1 OR ($2::text IS NOT NULL AND source_name='Eventpop' AND substring(source_url from '/e/([0-9]+)')=$2) LIMIT 1`, [event.url, source === 'Eventpop' ? eventpopUrl(event.url)?.match(/\/e\/(\d+)/)?.[1] || null : null]);
+  const existingSource = await one<{ concert_id: string; listing_only: boolean }>(`SELECT concert_id,COALESCE((raw_data->>'listingOnly')::boolean,false) AS listing_only FROM concert_sources WHERE source_url=$1 OR ($2::text IS NOT NULL AND source_name='Eventpop' AND substring(source_url from '/e/([0-9]+)')=$2) LIMIT 1`, [event.url, source === 'Eventpop' ? eventpopUrl(event.url)?.match(/\/e\/(\d+)/)?.[1] || null : null]);
+  if (event.listingOnly && existingSource && !existingSource.listing_only) {
+    // A card cannot re-verify or replace an earlier full detail, price, cancellation or schedule.
+    await query(`UPDATE concert_sources SET raw_data=COALESCE(raw_data,'{}'::jsonb) || jsonb_build_object('listing', $2::jsonb,'listingCheckedAt',now()),
+      last_error='Detail unavailable; public listing checked only' WHERE source_url=$1`,[event.url,JSON.stringify(event)]);
+    return false;
+  }
   let concertId = existingSource?.concert_id;
   if (!concertId && !date) return false;
   if (!concertId && date) {
@@ -332,6 +339,10 @@ export async function saveEvent(source: string, event: Event) {
   }
   const role = source === 'Live Nation Tero' ? 'organizer' : 'ticket';
   await query('INSERT INTO concert_sources(concert_id,source_name,source_url,source_role,raw_data,fetched_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(source_url) DO UPDATE SET raw_data = EXCLUDED.raw_data, source_role=EXCLUDED.source_role, fetched_at = now(), last_error = null', [concertId, source, event.url, role, JSON.stringify(event)]);
+  if (event.listingOnly && await one("SELECT 1 FROM concert_sources WHERE concert_id=$1 AND NOT COALESCE((raw_data->>'listingOnly')::boolean,false)",[concertId])) {
+    await query("UPDATE concert_sources SET last_error='Detail unavailable; public listing checked only' WHERE source_url=$1",[event.url]);
+    return !existingSource;
+  }
   // Manual organizer corrections retain precedence over ticketing metadata.
   const hasOrganizer = await one('SELECT 1 FROM concert_sources WHERE concert_id = $1 AND source_role = \'organizer\'', [concertId]);
   if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=COALESCE($10,price_min), price_max=COALESCE($11,price_max), image_url=COALESCE($12,image_url), currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB']);
@@ -342,6 +353,10 @@ export async function saveEvent(source: string, event: Event) {
   }
   if (!protectedConcert?.manual_override && (role === 'organizer' || !hasOrganizer)) await query('UPDATE concerts SET price_note=$2 WHERE id=$1', [concertId, event.priceNote || ((event.priceMin == null && event.priceMax == null) ? 'ต้นทางรอบนี้ยังไม่ระบุราคา ราคาที่แสดงเดิม (ถ้ามี) ต้องตรวจสอบอีกครั้ง' : null)]);
   if (event.artist) await query('INSERT INTO concert_artists(concert_id,artist_id) SELECT $1,id FROM artists WHERE lower(name)=lower($2) OR lower(name_en)=lower($2) ON CONFLICT DO NOTHING', [concertId, event.artist]);
+  if (event.listingOnly) {
+    await query("UPDATE concert_sources SET last_error='Detail unavailable; public listing checked only' WHERE source_url=$1",[event.url]);
+    await query("UPDATE concerts SET last_verified_at=NULL,price_note='อ่านได้เฉพาะหน้ารวม ยังตรวจรายละเอียด เวลาแสดง และราคาบัตรไม่ได้' WHERE id=$1 AND NOT manual_override AND NOT EXISTS(SELECT 1 FROM concert_sources WHERE concert_id=$1 AND NOT COALESCE((raw_data->>'listingOnly')::boolean,false))",[concertId]);
+  }
   // Foreign Ticketmaster performers have been verified; title keywords cannot add other artists.
   if (source === 'Ticketmaster' && event.country !== 'TH') return !existingSource;
   const titleWords = ' ' + normalized(event.title) + ' ';
@@ -364,10 +379,12 @@ export async function saveSourceEvents(source: string, events: Event[]) {
     group.push(event); groups.set(event.url, group);
   }
   for (const [url, rows] of groups) {
-    const concert = await one<{ id: string; manual_override: boolean; organizer: boolean }>(`SELECT c.id,c.manual_override,
+    const concert = await one<{ id: string; manual_override: boolean; organizer: boolean; listing_only: boolean; full_detail: boolean }>(`SELECT c.id,c.manual_override,COALESCE((s.raw_data->>'listingOnly')::boolean,false) AS listing_only,
+      EXISTS(SELECT 1 FROM concert_sources d WHERE d.concert_id=c.id AND NOT COALESCE((d.raw_data->>'listingOnly')::boolean,false)) AS full_detail,
       EXISTS(SELECT 1 FROM concert_sources s WHERE s.concert_id=c.id AND s.source_role='organizer') AS organizer
       FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1`, [url]);
     if (!concert || concert.manual_override || concert.organizer && source !== 'Live Nation Tero') continue;
+    if (rows.some(row => row.listingOnly) && (!concert.listing_only || concert.full_detail)) continue;
     const times = rows.filter(row => row.startsAt).map(row => row.startsAt!);
     if (times.length && rows.every(row => row.completeSchedule)) {
       // Removed dates stay in history; removal alone is not a cancellation.
@@ -390,7 +407,7 @@ export async function saveSourceEvents(source: string, events: Event[]) {
   return changed;
 }
 
-type SourceResult = { seen: number; changed: number; metrics?: DiscoveryMetrics; status?: 'success' | 'partial' | 'failed' | 'skipped'; error?: string };
+type SourceResult = { seen: number; changed: number; metrics?: DiscoveryMetrics | Record<string, unknown>; status?: 'success' | 'partial' | 'failed' | 'skipped'; error?: string };
 async function runSource(name: string, category: 'concert' | 'news' | 'travel', load: () => Promise<SourceResult>, cycleId?: number) {
   await query('INSERT INTO source_state(source_name,category,last_started_at) VALUES($1,$2,now()) ON CONFLICT(source_name) DO UPDATE SET last_started_at=now(), category=$2', [name, category]);
   const run = await one<{ id: number }>('INSERT INTO sync_runs(source_name,category,cycle_id) VALUES($1,$2,$3) RETURNING id', [name, category, cycleId || null]);
@@ -549,52 +566,130 @@ export class InstagramGraphError extends Error {
   readonly rateLimited: boolean;
   constructor(status: number, codes: number[]) {
     super('Instagram Graph HTTP ' + status + (codes.length ? ' (codes ' + codes.join('/') + ')' : ''));
-    this.rateLimited = status === 429 || codes[0] === 4;
+    this.rateLimited = status === 429 || [4,17,32,613,80004].includes(codes[0]);
   }
 }
 
-export async function instagramBusinessPosts(handle: string) {
+async function instagramResponse(response: Response, budget?: InstagramBudget) {
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null) as { error?: { code?: unknown; error_subcode?: unknown } } | null;
+    // Keep only numeric diagnostics; Graph messages can contain request credentials.
+    const codes = [failure?.error?.code, failure?.error?.error_subcode].filter((value): value is number => typeof value === 'number');
+    const error = new InstagramGraphError(response.status, codes);
+    await budget?.observe(response, error.rateLimited);
+    throw error;
+  }
+  await budget?.observe(response, false);
+  return await response.json() as any;
+}
+
+export async function instagramBusinessPosts(handle: string, options: { includeMedia?: boolean; budget?: InstagramBudget } = {}) {
   const username = handle.trim().replace(/^@/, '').toLowerCase();
   if (!/^[a-z0-9._]+$/.test(username)) throw new Error('Instagram username is invalid');
   const expires = Date.parse(config.instagramGraphTokenExpiresAt);
   if (Number.isFinite(expires) && expires <= Date.now()) throw new Error('Instagram token expired');
-  const fields = `business_discovery.username(${username}){id,username,media.limit(20){id,caption,media_type,media_product_type,permalink,timestamp,media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}}}`;
+  const mediaFields = options.includeMedia === false ? '' : ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}';
+  const fields = `business_discovery.username(${username}){id,username,media.limit(20){id,caption,media_type,media_product_type,permalink,timestamp${mediaFields}}}`;
   const url = new URL(`https://graph.facebook.com/${config.instagramGraphVersion}/${encodeURIComponent(config.instagramGraphUserId)}`);
   url.searchParams.set('fields', fields);
+  await options.budget?.beforeRequest();
   const response = await fetch(url, { headers: { Authorization: 'Bearer ' + config.instagramGraphToken }, signal: AbortSignal.timeout(15000) });
-  if (!response.ok) {
-    const failure = await response.json().catch(() => null) as { error?: { code?: unknown; error_subcode?: unknown } } | null;
-    // Keep only numeric diagnostics; Graph messages can contain request credentials.
-    const codes = [failure?.error?.code, failure?.error?.error_subcode].filter((value) => typeof value === 'number');
-    throw new InstagramGraphError(response.status, codes as number[]);
-  }
-  const data = await response.json() as any;
+  const data = await instagramResponse(response, options.budget);
   const discovery = data.business_discovery;
   if (!discovery?.id || String(discovery.username || '').toLowerCase() !== username || (discovery.media && !Array.isArray(discovery.media.data))) throw new Error('Instagram Business Discovery account unavailable');
   return instagramFeedPosts(discovery.media?.data);
 }
 
+async function syncInstagramNews(artistSlug?: string) {
+  return await withInstagramBudget(async (budget) => {
+    const account = await one<{ id: string; artist_id: string; handle: string | null; external_id: string | null; refresh_media: boolean }>(`SELECT s.id,s.artist_id,s.handle,s.external_id,
+      (s.last_media_refresh_at IS NULL OR s.last_media_refresh_at <= now()-$2::double precision*interval '1 hour') AS refresh_media
+      FROM social_accounts s JOIN artists a ON a.id=s.artist_id WHERE s.platform='instagram' AND s.verified_at IS NOT NULL
+      AND ($1::text IS NULL OR a.slug=$1) AND (s.next_sync_at IS NULL OR s.next_sync_at<=now())
+      ORDER BY s.last_success_at NULLS FIRST,s.next_sync_at NULLS FIRST,a.slug,s.id LIMIT 1`, [artistSlug || null,config.instagramMediaRefreshHours]);
+    if (!account) return 0;
+    // Reserve this account before any network I/O, so crashes cannot retry it immediately.
+    await query(`UPDATE social_accounts SET next_sync_at=now()+$2::double precision*interval '1 minute' WHERE id=$1`, [account.id,config.socialSyncIntervalMinutes]);
+    await query(`UPDATE sync_runs SET status='failed',finished_at=now(),error='Instagram worker stopped before sync finished'
+      WHERE source_name='INSTAGRAM' AND status='running'`);
+    return await runSource('INSTAGRAM','news',async () => {
+      const metrics = { requests: 0, accountsChecked: 1, postsChecked: 0, newPosts: 0, mediaRefreshed: false, mediaDeferred: false };
+      let seen = 0;
+      const read = async (includeMedia: boolean) => {
+        const discovery = !!config.instagramGraphToken && !!config.instagramGraphUserId;
+        if (discovery && account.handle) {
+          return await instagramBusinessPosts(account.handle, { includeMedia,budget: { ...budget,beforeRequest: async () => {
+            await budget.beforeRequest(); metrics.requests++;
+          } } });
+        }
+        if (discovery) throw new Error('Verified Instagram username required');
+        if (!config.metaToken || !account.external_id) throw new Error('Instagram token/account ID missing; automatic discovery unavailable');
+        const fields = 'id,caption,timestamp,permalink,media_type,media_product_type' + (includeMedia ? ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}' : '');
+        await budget.beforeRequest(); metrics.requests++;
+        const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/media?fields=${fields}&limit=20`, { headers: { Authorization: 'Bearer ' + config.metaToken },signal: AbortSignal.timeout(15000) });
+        return instagramFeedPosts((await instagramResponse(response,budget)).data);
+      };
+      const save = async (posts: Record<string,unknown>[], includeMedia: boolean) => {
+        for (const post of posts) {
+          const url = post.permalink;
+          if (typeof url !== 'string' || !validUrl(url) || !post.id) continue;
+          const media = includeMedia ? instagramMedia(post) : [];
+          const image = media[0]?.type === 'image' ? media[0].url : media[0]?.thumbnailUrl;
+          await query(includeMedia ? newsUpsertSql : newsMetadataUpsertSql, [account.artist_id,'instagram',url,post.id,post.caption || null,image || null,post.timestamp || null,JSON.stringify(media)]);
+        }
+      };
+      try {
+        const probe = await read(false);
+        const previous = await query<{ source_url: string; body: string | null; has_media: boolean }>(`SELECT source_url,body,jsonb_array_length(media_items)>0 AS has_media
+          FROM news_items WHERE artist_id=$1 AND platform='instagram' AND source_url=ANY($2::text[])`, [account.artist_id,probe.map(post => post.permalink).filter(value => typeof value === 'string')]);
+        const known = new Map(previous.map(post => [post.source_url,post]));
+        metrics.postsChecked = probe.length;
+        metrics.newPosts = probe.filter(post => !known.has(String(post.permalink))).length;
+        const needMedia = account.refresh_media || probe.some(post => {
+          const previous = known.get(String(post.permalink));
+          return !previous || !previous.has_media || previous.body !== (post.caption || null);
+        });
+        await save(probe,false); seen = probe.length;
+        if (needMedia && probe.length) {
+          if (await budget.paused()) metrics.mediaDeferred = true;
+          else {
+            await new Promise(resolve => setTimeout(resolve,2_000));
+            const full = await read(true);
+            await save(full,true);
+            await query('UPDATE social_accounts SET last_media_refresh_at=now() WHERE id=$1',[account.id]);
+            metrics.mediaRefreshed = true;
+          }
+        }
+        await query('UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=$2 WHERE id=$1', [account.id,metrics.mediaDeferred ? 'Instagram media refresh deferred: usage cooldown' : null]);
+        return { seen,changed: metrics.newPosts,metrics,status: metrics.mediaDeferred ? 'partial' : 'success',error: metrics.mediaDeferred ? 'Instagram media refresh deferred: usage cooldown' : undefined };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Instagram sync failed';
+        await query(`UPDATE social_accounts SET last_checked_at=now(),last_success_at=CASE WHEN $3 THEN now() ELSE last_success_at END,last_error=$2 WHERE id=$1`, [account.id,message,seen>0]);
+        return { seen,changed: metrics.newPosts,metrics,status: seen>0 ? 'partial' : 'failed',error: message };
+      }
+    });
+  }) ?? 0;
+}
+
 export async function syncNews(options: { platform?: 'x' | 'facebook' | 'instagram'; artistSlug?: string } = {}) {
   const platforms = (['x', 'facebook', 'instagram'] as const).filter((platform) => !options.platform || platform === options.platform);
-  for (const platform of platforms) await runSource(platform.toUpperCase(), 'news', async () => {
+  let total = 0;
+  for (const platform of platforms) {
+    if (platform === 'instagram') { total += await syncInstagramNews(options.artistSlug); continue; }
+    total += await runSource(platform.toUpperCase(), 'news', async () => {
     const accounts = await query<{ id: string; artist_id: string; external_id: string | null; handle: string | null }>(`SELECT s.id,s.artist_id,s.external_id,s.handle FROM social_accounts s
       JOIN artists a ON a.id=s.artist_id WHERE s.platform=$1 AND s.verified_at IS NOT NULL
       AND ($2::text IS NULL OR a.slug=$2) ORDER BY s.last_success_at NULLS FIRST,s.last_checked_at NULLS FIRST,a.slug,s.id`, [platform, options.artistSlug || null]);
     if (!accounts.length) throw new Error('No verified official accounts configured');
     if (platform === 'x' && !config.xBearerToken) throw new Error('X API token missing; automatic discovery unavailable');
     if (platform === 'facebook' && !config.metaToken) throw new Error('Meta access token missing; automatic discovery unavailable');
-    const hasInstagramDiscovery = !!config.instagramGraphToken && !!config.instagramGraphUserId;
-    if (platform === 'instagram' && !hasInstagramDiscovery && !config.metaToken) throw new Error('Instagram Graph token or IG user ID missing; automatic discovery unavailable');
     const monthlyLimit = Math.floor(config.xMonthlyLimitThb / (50 * 0.005));
     const spent = platform === 'x' ? await one<{ total: string }>("SELECT COALESCE(sum(items_seen),0)::text AS total FROM sync_runs WHERE source_name='X' AND started_at >= date_trunc('month',now()) AND status='success'") : null;
     if (platform === 'x' && Number(spent?.total || 0) + 10 > monthlyLimit) throw new Error('X monthly read budget reached; see Developer Console spending limit');
     let count = 0, succeeded = 0;
-    let rateLimitError: string | null = null;
     for (const account of accounts) {
       if (platform === 'x' && count + Number(spent?.total || 0) + 10 > monthlyLimit) break;
       if (!account.external_id && platform === 'facebook') { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, 'Page ID required']); continue; }
-      if (!account.handle && platform === 'instagram' && hasInstagramDiscovery) { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, 'Verified Instagram username required']); continue; }
-      if (!account.external_id && platform === 'instagram' && !hasInstagramDiscovery) { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, 'Instagram account ID required']); continue; }
       if (platform === 'x' && !account.handle) { await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, 'X handle required']); continue; }
       try {
         let posts: any[] = [];
@@ -602,22 +697,16 @@ export async function syncNews(options: { platform?: 'x' | 'facebook' | 'instagr
           const response = await fetch('https://api.x.com/2/tweets/search/recent?query=' + encodeURIComponent('from:' + account.handle + ' -is:retweet') + '&max_results=10&tweet.fields=created_at', { headers: { Authorization: 'Bearer ' + config.xBearerToken }, signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('X HTTP ' + response.status);
           posts = ((await response.json()) as any).data || [];
-        } else if (platform === 'instagram' && hasInstagramDiscovery && account.handle) {
-          posts = await instagramBusinessPosts(account.handle);
         } else {
-          const edge = platform === 'facebook' ? 'posts' : 'media';
-          const fields = platform === 'facebook' ? 'id,message,created_time,permalink_url,full_picture' : 'id,caption,timestamp,permalink,media_type,media_product_type,media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}';
-          const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/${edge}?fields=${fields}&limit=10`, { headers: { Authorization: 'Bearer ' + config.metaToken }, signal: AbortSignal.timeout(15000) });
+          const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/posts?fields=id,message,created_time,permalink_url,full_picture&limit=10`, { headers: { Authorization: 'Bearer ' + config.metaToken }, signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('Meta HTTP ' + response.status);
           posts = ((await response.json()) as any).data || [];
-          if (platform === 'instagram') posts = instagramFeedPosts(posts);
         }
         for (const post of posts) {
           const url = platform === 'x' ? `https://x.com/${account.handle}/status/${post.id}` : post.permalink_url || post.permalink;
           if (!url || !post.id) continue;
-          const media = platform === 'instagram' ? instagramMedia(post) : [];
-          const image = platform === 'instagram' ? (media[0]?.type === 'image' ? media[0].url : media[0]?.thumbnailUrl) : post.full_picture;
-          await query(newsUpsertSql, [account.artist_id, platform, url, post.id, post.text || post.message || post.caption || null, image && validUrl(image) ? image : null, post.created_at || post.created_time || post.timestamp || null, JSON.stringify(media)]);
+          const image = post.full_picture;
+          await query(newsUpsertSql, [account.artist_id, platform, url, post.id, post.text || post.message || null, image && validUrl(image) ? image : null, post.created_at || post.created_time || null, '[]']);
           count++;
         }
         await query('UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=null WHERE id=$1', [account.id]);
@@ -625,20 +714,12 @@ export async function syncNews(options: { platform?: 'x' | 'facebook' | 'instagr
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await query('UPDATE social_accounts SET last_checked_at=now(),last_error=$2 WHERE id=$1', [account.id, message]);
-        if (platform === 'instagram' && error instanceof InstagramGraphError && error.rateLimited) {
-          rateLimitError = `${message}; ${succeeded}/${accounts.length} accounts read; retry next scheduled cycle`;
-          const remaining = accounts.slice(accounts.indexOf(account) + 1).map(item => item.id);
-          // Deferred accounts were not checked; preserve their check/success times and posts.
-          if (remaining.length) await query('UPDATE social_accounts SET last_error=$2 WHERE id=ANY($1::uuid[])', [remaining, 'Instagram sync deferred: API rate limit; retry next scheduled cycle']);
-          break;
-        }
       }
     }
-    if (rateLimitError) throw new Error(rateLimitError);
     if (!succeeded) throw new Error('No verified account could be read; inspect account errors');
     return { seen: count, changed: count };
-  });
-  if (options.platform) return;
-  if (!config.amadeusClientId || !config.amadeusClientSecret) await runSource('Amadeus', 'travel', async () => { throw new Error('Amadeus credentials not configured'); });
-  await runSource('12Go', 'travel', async () => { throw new Error('12Go affiliate/API access not configured'); });
+    });
+  }
+  if (options.platform) return total;
+  return total;
 }

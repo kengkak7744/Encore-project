@@ -7,6 +7,7 @@ import { biographyFor, curatedArtistProfiles } from './artist-profiles.js';
 test('curated artist profiles have unique identities and traceable HTTPS evidence', () => {
   const slugs = curatedArtistProfiles.map((profile) => profile.slug);
   assert.equal(new Set(slugs).size, slugs.length);
+  assert.equal(slugs.length, 50);
   assert.ok(slugs.filter((slug) => !slug.endsWith('-4eve')).length >= 30);
   assert.equal(slugs.filter((slug) => slug.endsWith('-4eve')).length, 7);
   for (const profile of curatedArtistProfiles) {
@@ -33,7 +34,7 @@ test('curated artist profiles have unique identities and traceable HTTPS evidenc
   const aheye = curatedArtistProfiles.find((profile) => profile.slug === 'aheye-4eve');
   assert.ok(aheye);
   assert.ok(biographyFor(aheye).length >= 4);
-  assert.deepEqual(Object.keys(artistBiographies).sort(), slugs.filter((slug) => slug !== 'aheye-4eve').sort());
+  assert.deepEqual(Object.keys(artistBiographies).sort(), curatedArtistProfiles.filter(profile => !profile.biography).map(profile => profile.slug).sort());
 });
 
 test('Each curated artist has a distinct Instagram profile with a reviewed source, including individual members', () => {

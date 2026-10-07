@@ -1,0 +1,16 @@
+/* Provisional Encore values. Map approved Figma variables here on handoff. */
+:root {
+  --ink: #20211d;
+  --muted: #74786e;
+  --paper: #f7f8f2;
+  --white: #fff;
+  --lime: #c7f05b;
+  --forest: #183b2f;
+  --line: #e4e8dd;
+  --orange: #f47750;
+  --focus: #183b2f;
+  --font-body: 'DM Sans', 'Noto Sans Thai', sans-serif;
+  --content-width: 1180px;
+  --radius-card: 18px;
+  --radius-control: 12px;
+}

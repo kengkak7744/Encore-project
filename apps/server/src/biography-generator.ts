@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { ollamaJson } from './ollama.js';
 import { assertBiographyModel, biographyExcerpts, BiographyRejected, validateBiographyDraft, validateBiographyReview, type BiographyArtist, type BiographyDraft, type BiographySource } from './biography-policy.js';
 
 const draftSchema = {
@@ -17,13 +18,9 @@ const reviewSchema = {
 
 async function modelJson(system: string, input: unknown, schema: object, signal: AbortSignal) {
   assertBiographyModel(config.biographyModel, config.chatModel);
-  const response = await fetch(config.biographyOllamaUrl + '/api/chat', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.biographyModel, stream: false, think: false, format: schema, keep_alive: '30s', options: { num_ctx: 8192, num_predict: 2400, temperature: 0.1 }, messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(input) }] }),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(config.biographyTimeoutMs)]),
-  });
-  if (!response.ok) throw new Error('Biography Ollama HTTP ' + response.status);
-  const data = await response.json() as { message?: { content?: string }; done_reason?: string };
+  const data = await ollamaJson(config.biographyOllamaUrl,'/api/chat',
+    { model: config.biographyModel,stream: false,think: false,format: schema,options: { num_ctx: 8192,num_predict: 2400,temperature: 0.1 },messages: [{ role: 'system',content: system },{ role: 'user',content: JSON.stringify(input) }] },
+    { signal,timeoutMs: config.biographyTimeoutMs });
   if (data.done_reason === 'length' || !data.message?.content) throw new BiographyRejected('Model output was truncated or empty');
   try { return JSON.parse(data.message.content); } catch { throw new BiographyRejected('Model did not return valid JSON'); }
 }
@@ -63,7 +60,6 @@ export async function generateBiography(artist: BiographyArtist, sources: Biogra
 }
 
 export async function unloadBiographyModel() {
-  try {
-    await fetch(config.biographyOllamaUrl + '/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: config.biographyModel, keep_alive: 0 }), signal: AbortSignal.timeout(10000) });
-  } catch { /* A stopped Ollama service already releases its memory. */ }
+  // Each coordinated request releases its model before releasing GPU ownership.
+  // An out-of-band unload here could race the next job that uses the same model.
 }

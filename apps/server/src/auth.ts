@@ -25,7 +25,8 @@ export async function verifyPassword(password: string, stored: string) {
 
 function cookieToken(req: Request) {
   const entry = (req.headers.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(cookieName + '='));
-  return entry ? decodeURIComponent(entry.slice(cookieName.length + 1)) : null;
+  try { return entry ? decodeURIComponent(entry.slice(cookieName.length + 1)) : null; }
+  catch { return null; }
 }
 
 function tokenHash(token: string) {
@@ -57,10 +58,30 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
       'SELECT users.id, users.email, users.display_name, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = $1 AND sessions.expires_at > now()',
       [tokenHash(token)],
     ) : null;
+    if (!res.locals.user && (req.headers.cookie || '').split(';').some(part => part.trim().startsWith(cookieName + '='))) {
+      res.clearCookie(cookieName, { path: '/' });
+    }
     next();
   } catch (error) {
     next(error);
   }
+}
+
+// Long requests must recheck the session after waiting for AI or a provider.
+export async function revalidateUser(req: Request, res: Response) {
+  const token = cookieToken(req);
+  const user = token ? await one<User>(
+    'SELECT users.id, users.email, users.display_name, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = $1 AND sessions.expires_at > now()',
+    [tokenHash(token)],
+  ) : null;
+  if (!user || user.id !== res.locals.user?.id) {
+    res.locals.user = null;
+    res.clearCookie(cookieName, { path: '/' });
+    res.status(401).json({ error: 'กรุณาเข้าสู่ระบบ' });
+    return false;
+  }
+  res.locals.user = user;
+  return true;
 }
 
 export function requireUser(_req: Request, res: Response, next: NextFunction) {

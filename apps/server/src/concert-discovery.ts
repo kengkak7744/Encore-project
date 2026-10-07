@@ -6,15 +6,16 @@ import { recordConcertBackoff } from './concert-backoff.js';
 import { eventpopUrl, parseEventpopDetail, parseTheConcertApi, theConcertListing } from './concert-parsers.js';
 import { parseEvents, parseEventpopMeta, parseLiveNation, parseTicketmelon } from './ingest.js';
 import type { ConcertEvent, DiscoveryMetrics, DiscoveryResult } from './concert-types.js';
+import { parseTtmListing } from './ttm-listing.js';
 
 type Source = { name: string; url: string; host: string; linkPattern: RegExp };
 const pause = (ms = 400) => new Promise(resolve => setTimeout(resolve, ms));
-const metrics = (discovery: string): DiscoveryMetrics => ({ discovery, discovered: 0, attempted: 0, parsedPages: 0, emptyPages: 0, fetchFailures: 0, filteredPast: 0, pending: 0, limited: false, warnings: [] });
+const metrics = (discovery: string): DiscoveryMetrics => ({ discovery, discovered: 0, attempted: 0, parsedPages: 0, emptyPages: 0, fetchFailures: 0, filteredPast: 0, pending: 0, limited: false, warnings: [],pages: [],catalogComplete: true });
 
 export function rotatingUrls(entries: { url: string; modified: string }[], priority: string[], offset: number, limit: number) {
   const all = [...new Set(entries.map(item => item.url))].sort();
   const recent = [...entries].sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, 20).map(item => item.url);
-  const selected = [...new Set([...priority.filter(url => all.includes(url)), ...recent])].slice(0, Math.floor(limit * 0.75));
+  const selected = [...new Set([...recent, ...priority.filter(url => all.includes(url))])].slice(0, Math.floor(limit * 0.75));
   let advanced = 0;
   while (selected.length < limit && advanced < all.length) {
     const url = all[(offset + advanced) % all.length];
@@ -54,6 +55,8 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
       await pause();
     }
     counters.discovered = ids.size;
+    counters.catalogUrls = [...ids].map(id => 'https://www.theconcert.com/p/' + id);
+    counters.catalogComplete = lastPage <= 50;
     counters.limited = lastPage > 50 || ids.size > limit;
     counters.pending = Math.max(0, ids.size - limit);
     for (const id of [...ids].slice(0, limit)) {
@@ -76,9 +79,11 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
         }
         const parsed = parseTheConcertApi(detail, rounds);
         if (parsed.length) counters.parsedPages++; else counters.emptyPages++;
+        counters.pages!.push({ url: 'https://www.theconcert.com/p/' + id,outcome: parsed.length ? 'parsed' : 'empty',sessions: parsed.length });
         events.push(...parsed);
       } catch (error) {
         counters.fetchFailures++;
+        counters.pages!.push({ url: 'https://www.theconcert.com/p/' + id,outcome: 'failed',sessions: 0,error: error instanceof Error ? error.message.slice(0,200) : 'Unreadable detail' });
         if (counters.warnings.length < 10) counters.warnings.push(`/p/${id}: ` + (error instanceof Error ? error.message : 'Unreadable detail'));
         if (await recordConcertBackoff(source.name,error)) break;
       }
@@ -91,6 +96,7 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
   const urls = new Set<string>();
   let nextOffset: number | undefined;
   let eventpopOffset = 0;
+  const listingEvents = new Map<string,ConcertEvent[]>();
   if (source.name === 'Ticketmelon') {
     const sitemap = async (url: string) => {
       const $ = cheerio.load(await fetchConcertResource(url, source.host, 'xml'), { xmlMode: true });
@@ -106,6 +112,7 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
     const cursor = await one<{ cursor_offset: number }>("SELECT cursor_offset FROM concert_discovery_cursors WHERE source_name='Ticketmelon'");
     const known = await query<{ source_url: string }>("SELECT cs.source_url FROM concert_sources cs JOIN concerts c ON c.id=cs.concert_id WHERE cs.source_name='Ticketmelon' AND (c.ends_at >= now() OR c.starts_at >= now()) ORDER BY cs.fetched_at ASC");
     const selection = rotatingUrls(eligible, known.map(item => item.source_url), cursor?.cursor_offset || 0, limit);
+    counters.catalogUrls = [...new Set(eligible.map(row => row.url))];
     selection.urls.forEach(url => urls.add(url));
     counters.discovered = selection.catalogSize;
     nextOffset = selection.nextOffset;
@@ -113,19 +120,27 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
     const listings = source.name === 'Eventpop' ? ['https://www.eventpop.me/g/concert', 'https://www.eventpop.me/g/music-festival'] : [source.url];
     for (const listing of listings) {
       const markup = await fetchConcertResource(listing, source.host, 'html');
+      if (source.name === 'ThaiTicketMajor') for (const event of parseTtmListing(markup,listing)) {
+        listingEvents.set(event.url,[...(listingEvents.get(event.url) || []),event]);
+      }
+      if (source.name === 'AllTicket' && /javascript required|doesn.t work properly without javascript/i.test(markup)) {
+        throw Error('AllTicket listing requires JavaScript; public catalog could not be discovered. Trying Live Nation Tero fallback');
+      }
       const $ = cheerio.load(markup);
       $('footer').remove();
       $('a[href]').each((_i, element) => {
         try {
           const url = new URL($(element).attr('href') || '', listing);
           if (url.protocol !== 'https:' || url.hostname !== source.host && !url.hostname.endsWith('.' + source.host) || !source.linkPattern.test(url.href)) return;
+          if (source.name === 'ThaiTicketMajor' && !/\/(concert|performance)\/[^/]+\.html$/i.test(url.pathname)) return;
           const canonical = source.name === 'Eventpop' ? eventpopUrl(url.href) : url.origin + url.pathname;
           if (canonical && canonical !== listing) urls.add(canonical);
         } catch { /* Ignore malformed links. */ }
       });
-      for (const event of parseEvents(markup, listing)) if (event.url !== listing) urls.add(event.url);
+      for (const event of parseEvents(markup, listing)) if (event.url !== listing && (source.name !== 'ThaiTicketMajor' || /\/(concert|performance)\/[^/]+\.html$/i.test(new URL(event.url).pathname))) urls.add(event.url);
     }
     counters.discovered = urls.size;
+    counters.catalogUrls = [...urls];
     if (source.name === 'Eventpop' && urls.size) {
       const cursor = await one<{ cursor_offset: number }>("SELECT cursor_offset FROM concert_discovery_cursors WHERE source_name='Eventpop'");
       eventpopOffset = options.sweep ? 0 : (cursor?.cursor_offset || 0) % urls.size;
@@ -146,9 +161,19 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
       else if (source.name === 'Eventpop') { parsed = parseEventpopDetail(markup, url); if (!parsed.length) parsed = parseEventpopMeta(markup, url); }
       else { parsed = parseEvents(markup, url); if (source.name === 'Live Nation Tero' && !parsed.length) parsed = parseLiveNation(markup, url); }
       if (parsed.length) counters.parsedPages++; else counters.emptyPages++;
+      counters.pages!.push({ url,outcome: parsed.length ? 'parsed' : 'empty',sessions: parsed.length });
       events.push(...parsed);
+      if (!parsed.length && listingEvents.has(url)) {
+        events.push(...listingEvents.get(url)!);counters.listingFallback = (counters.listingFallback || 0) + 1;
+        counters.pages!.at(-1)!.listingFallback = true;
+      }
     } catch (error) {
       counters.fetchFailures++;
+      counters.pages!.push({ url,outcome: 'failed',sessions: 0,error: error instanceof Error ? error.message.slice(0,200) : 'Unreadable detail' });
+      if (listingEvents.has(url)) {
+        events.push(...listingEvents.get(url)!);counters.listingFallback = (counters.listingFallback || 0) + 1;
+        counters.pages!.at(-1)!.listingFallback = true;
+      }
       if (counters.warnings.length < 10) counters.warnings.push(new URL(url).pathname + ': ' + (error instanceof Error ? error.message : 'Unreadable detail'));
       if (await recordConcertBackoff(source.name,error)) {
         nextOffset = source.name === 'Eventpop' ? (eventpopOffset + counters.attempted - 1) % urls.size : undefined;

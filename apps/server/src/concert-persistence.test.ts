@@ -41,6 +41,27 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
     await saveEvent('Live Nation Tero',{ ...base,title: 'Organizer Live',url: 'https://www.livenationtero.co.th/en/event/fixture',venue: 'Hall C' });
     await saveEvent('Ticketmelon',{ ...base,title: 'Organizer Live',url: 'https://www.ticketmelon.com/fixture/organizer',venue: 'Hall C',status: 'cancelled' });
     assert.equal((await client.query("SELECT status FROM concerts WHERE title='Organizer Live'")).rows[0].status,'scheduled');
+    await t.test('Listing fallback cannot replace detail timestamps, prices, cancellation or manual corrections',async () => {
+      const url = 'https://www.thaiticketmajor.com/concert/listing-fixture.html';
+      await saveSourceEvents('ThaiTicketMajor',[{ ...base,url,title: 'Detail Protected',venue: 'Hall D',status: 'cancelled' }]);
+      const before = (await client.query('SELECT c.*,s.fetched_at FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1',[url])).rows[0];
+      await saveSourceEvents('ThaiTicketMajor',[{ ...base,url,title: 'Incomplete Card',venue: 'Wrong Hall',listingOnly: true,timeTba: true,startsAt: '2033-01-01T17:00:00Z',status: 'scheduled',priceMin: null,priceMax: null }]);
+      const after = (await client.query('SELECT c.*,s.fetched_at,s.last_error FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1',[url])).rows[0];
+      for (const key of ['title','venue','starts_at','ends_at','status','price_min','last_verified_at','fetched_at']) assert.deepEqual(after[key],before[key]);
+      assert.match(after.last_error,/listing checked only/);
+      const listing = { ...base,url: 'https://www.thaiticketmajor.com/concert/new-card.html',title: 'New Card',venue: 'Hall E',listingOnly: true,timeTba: true,endsAt: null,priceMin: null,priceMax: null };
+      await saveSourceEvents('ThaiTicketMajor',[listing,{ ...listing,startsAt: '2030-12-26T09:00:00Z' }]);
+      const fresh = (await client.query("SELECT * FROM concerts WHERE title='New Card'")).rows[0];
+      assert.equal(fresh.last_verified_at,null);assert.equal(fresh.price_min,null);assert.equal(fresh.time_tba,true);assert.equal(fresh.starts_at.toISOString(),'2030-12-25T09:00:00.000Z');
+      assert.equal((await client.query('SELECT count(*)::int n FROM concert_performances WHERE concert_id=$1',[fresh.id])).rows[0].n,2);
+      await client.query("UPDATE concerts SET manual_override=true,title='Manual listing' WHERE id=$1",[fresh.id]);
+      await saveSourceEvents('ThaiTicketMajor',[{ ...listing,title: 'Wrong update' }]);
+      assert.equal((await client.query('SELECT title FROM concerts WHERE id=$1',[fresh.id])).rows[0].title,'Manual listing');
+      const organizerBefore = (await client.query("SELECT * FROM concerts WHERE title='Organizer Live'")).rows[0];
+      await saveSourceEvents('ThaiTicketMajor',[{ ...base,title: 'Organizer Live',url: 'https://www.thaiticketmajor.com/concert/organizer-card.html',venue: 'Hall C',listingOnly: true,timeTba: true,priceMin: null,priceMax: null }]);
+      const organizerAfter = (await client.query('SELECT * FROM concerts WHERE id=$1',[organizerBefore.id])).rows[0];
+      assert.deepEqual(organizerAfter,organizerBefore,'A new listing source must not overwrite existing organizer details');
+    });
     const user = (await client.query("INSERT INTO users(email,password_hash,display_name) VALUES('archive-fixture@example.com','fixture','Fixture') RETURNING id")).rows[0].id;
     for (const kind of ['invalid','manual','attended','mixed']) {
       const id = (await client.query("INSERT INTO concerts(slug,title,starts_at,manual_override) VALUES($1,$1,'2126-01-01',$2) RETURNING id",['archive-'+kind,kind === 'manual'])).rows[0].id;

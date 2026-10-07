@@ -6,6 +6,9 @@ export const newsUpsertSql = `INSERT INTO news_items(artist_id,platform,source_u
   published_at=EXCLUDED.published_at,fetched_at=now(),last_verified_at=now(),
   summary=CASE WHEN news_items.body IS DISTINCT FROM EXCLUDED.body THEN NULL ELSE news_items.summary END`;
 
+// A lightweight check refreshes text and verification without clearing stored CDN URLs.
+export const newsMetadataUpsertSql = newsUpsertSql.replace('image_url=EXCLUDED.image_url,media_items=EXCLUDED.media_items', 'image_url=news_items.image_url,media_items=news_items.media_items');
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }

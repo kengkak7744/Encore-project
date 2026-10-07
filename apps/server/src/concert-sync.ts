@@ -9,11 +9,16 @@ const { syncConcerts } = await import('./ingest.js');
 const { pool, query } = await import('./db.js');
 const { config } = await import('./config.js');
 if (config.concertReportDirectory) config.concertReportDirectory = resolve(fileURLToPath(new URL('../../../',import.meta.url)),config.concertReportDirectory);
-const { writeConcertReport } = await import('./concert-scheduler.js');
+const { writeConcertReport, startConcertMonitor } = await import('./concert-scheduler.js');
 
 try {
   await migrate();
-  if (process.argv.includes('--report')) {
+  if (process.argv.includes('--start-monitor')) {
+    const reasonIndex = process.argv.indexOf('--reason');
+    const reason = reasonIndex<0 ? '' : process.argv[reasonIndex+1] || '';
+    console.log(JSON.stringify(await startConcertMonitor(reason),null,2));
+    await writeConcertReport();
+  } else if (process.argv.includes('--report')) {
     const report = await writeConcertReport();
     console.log(JSON.stringify({ directory: config.concertReportDirectory || null, report },null,2));
   } else {
