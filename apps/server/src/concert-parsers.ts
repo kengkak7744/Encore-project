@@ -17,6 +17,14 @@ function image(value: unknown, page: string) {
   try { const url = new URL(raw, page); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null; } catch { return null; }
 }
 
+export function eventpopPoster(markup: string, page: string) {
+  if (!eventpopUrl(page)) return null;
+  const $ = cheerio.load(markup);
+  // Some event pages publish a placeholder Open Graph cover but a real full-size poster.
+  const poster = $('.event-cover .poster-wrapper a[href]').first().attr('href') || $('.event-cover img').first().attr('src');
+  return image(poster,page) || image($('meta[property="og:image"]').attr('content'),page);
+}
+
 export function eventpopUrl(value: string) {
   try {
     const url = new URL(value);
@@ -36,7 +44,7 @@ export function parseEventpopDetail(markup: string, page: string): ConcertEvent[
   if (location && !/(?:thailand|ประเทศไทย|ไทย)\s*$/i.test(location)) return [];
   const venue = $('a[href*="google.com/maps"] strong').first().text().trim() || location.split(',')[0]?.trim() || null;
   const city = location.split(',').length > 1 ? location.split(',').at(-2)?.trim() || null : null;
-  const base: ConcertEvent = { title, url, startsAt: null, venue, city, country: 'TH', currency: 'THB', image: image($('meta[property="og:image"]').attr('content'), page), status: /cancelled|canceled|ยกเลิก/i.test(title) ? 'cancelled' : /postponed|เลื่อน/i.test(title) ? 'postponed' : 'scheduled', priceMin: null, priceMax: null };
+  const base: ConcertEvent = { title, url, startsAt: null, venue, city, country: 'TH', currency: 'THB', image: eventpopPoster(markup,page), status: /cancelled|canceled|ยกเลิก/i.test(title) ? 'cancelled' : /postponed|เลื่อน/i.test(title) ? 'postponed' : 'scheduled', priceMin: null, priceMax: null };
   const parseDate = (value: string) => {
     const match = value.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})(?:\s+(?:at\s+)?(\d{1,2}:\d{2}))?/);
     if (!match) return null;

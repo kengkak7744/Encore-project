@@ -13,6 +13,9 @@ coverage/
 /AGENTS.md
 .local/
 /agent.md
+**/AGENTS.md
+**/agent.md
+**/CLAUDE.md
 /.agents/
 /.codex/
 *.pdf

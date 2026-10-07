@@ -6,7 +6,7 @@ import { instagramFeedPosts, instagramMedia, newsUpsertSql, newsMetadataUpsertSq
 import { withInstagramBudget, type InstagramBudget } from './instagram-budget.js';
 
 import type { ConcertEvent as Event, DiscoveryMetrics } from './concert-types.js';
-import { eventpopUrl, parseEventpopDetail } from './concert-parsers.js';
+import { eventpopUrl, eventpopPoster, parseEventpopDetail } from './concert-parsers.js';
 import { discoverConcertSource } from './concert-discovery.js';
 import { recordConcertBackoff } from './concert-backoff.js';
 type TicketmasterIdentity = { aliases: string[]; attractionIds: string[]; officialUrls: string[]; evidenceUrls?: Record<string, string> };
@@ -141,7 +141,7 @@ export function parseEventpopMeta(markup: string, pageUrl: string): Event[] {
   const endText = meta('og:end_time');
   const endsAt = endText && /\+07:00$/.test(endText) ? eventDate(endText)?.iso : null;
   if (endsAt && Date.parse(endsAt) < Date.parse(startsAt)) return [];
-  return [{ title, url: url.origin + url.pathname, startsAt, endsAt, venue: location.length >= 3 ? location.slice(0, -2).join(', ') : location[0], city: location.length >= 3 ? location.at(-2) : null, country: 'TH', image: meta('og:image') }];
+  return [{ title, url: url.origin + url.pathname, startsAt, endsAt, venue: location.length >= 3 ? location.slice(0, -2).join(', ') : location[0], city: location.length >= 3 ? location.at(-2) : null, country: 'TH', image: eventpopPoster(markup,pageUrl) }];
 }
 
 const thaiMonths: Record<string, number> = { 'ม.ค.': 1, 'ก.พ.': 2, 'มี.ค.': 3, 'เม.ย.': 4, 'พ.ค.': 5, 'มิ.ย.': 6, 'ก.ค.': 7, 'ส.ค.': 8, 'ก.ย.': 9, 'ต.ค.': 10, 'พ.ย.': 11, 'ธ.ค.': 12 };
@@ -334,7 +334,7 @@ export async function saveEvent(source: string, event: Event) {
   }
   if (!concertId) {
     const key = slug(normalized(event.title) + '|' + (date?.toISOString().slice(0, 10) || '') + '|' + (event.city || '') + '|' + normalized(event.venue || '') + '|' + (event.country || 'TH'));
-    const row = await one<{ id: string }>('INSERT INTO concerts(slug,title,description,venue,city,country_code,starts_at,ends_at,time_tba,status,price_min,price_max,currency,image_url,official_url,last_verified_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now()) ON CONFLICT(slug) DO UPDATE SET updated_at = now() RETURNING id', ['event-' + key, event.title, event.description || null, event.venue || null, event.city || null, event.country?.slice(0, 2).toUpperCase() || 'TH', date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.currency || 'THB', event.image || null, event.url]);
+    const row = await one<{ id: string }>('INSERT INTO concerts(slug,title,description,venue,city,country_code,starts_at,ends_at,time_tba,status,price_min,price_max,currency,image_url,image_source_url,image_checked_at,official_url,last_verified_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CASE WHEN $14::text IS NOT NULL THEN $15 ELSE NULL END,CASE WHEN $14::text IS NOT NULL THEN now() ELSE NULL END,$15,now()) ON CONFLICT(slug) DO UPDATE SET updated_at = now() RETURNING id', ['event-' + key, event.title, event.description || null, event.venue || null, event.city || null, event.country?.slice(0, 2).toUpperCase() || 'TH', date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.currency || 'THB', event.image || null, event.url]);
     concertId = row!.id;
   }
   const role = source === 'Live Nation Tero' ? 'organizer' : 'ticket';
@@ -345,7 +345,7 @@ export async function saveEvent(source: string, event: Event) {
   }
   // Manual organizer corrections retain precedence over ticketing metadata.
   const hasOrganizer = await one('SELECT 1 FROM concert_sources WHERE concert_id = $1 AND source_role = \'organizer\'', [concertId]);
-  if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=COALESCE($10,price_min), price_max=COALESCE($11,price_max), image_url=COALESCE($12,image_url), currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB']);
+  if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=COALESCE($10,price_min), price_max=COALESCE($11,price_max), image_url=COALESCE($12,image_url), image_source_url=CASE WHEN $12::text IS NOT NULL THEN $14 ELSE image_source_url END, image_checked_at=CASE WHEN $12::text IS NOT NULL THEN now() ELSE image_checked_at END, currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB', event.url]);
   const protectedConcert = await one<{ manual_override: boolean }>('SELECT manual_override FROM concerts WHERE id=$1', [concertId]);
   if (date && !protectedConcert?.manual_override && (role === 'organizer' || !hasOrganizer)) {
     const preciseRound = event.timeTba ? await one("SELECT id FROM concert_performances WHERE concert_id=$1 AND NOT time_tba AND (starts_at AT TIME ZONE 'Asia/Bangkok')::date = ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date", [concertId, date.toISOString()]) : null;

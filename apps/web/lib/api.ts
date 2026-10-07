@@ -3,12 +3,32 @@ export type ArtistImageCredit = { creator: string; title: string; source_url: st
 export type EditableArtist = Artist & { edit_version: string; biography_manual_override?: boolean; image_manual_override?: boolean };
 export type ArtistMembershipEvidence = { checkedAt: string; pending: string[]; claims: { kind: string; status: 'current' | 'historical' | 'unclear'; text: string; sourceUrl: string; sourceLabel: string; publishedAt?: string; reproductionUrl?: string }[] };
 export type ArtistPopularityEvidence = { status: string; metric: string; value?: number | null; sourceUrl: string; sourceLabel?: string; work?: string; sourceDate?: string | null; measuredAt?: string | null; checkedAt: string; note: string };
-export type Concert = { id: string; slug: string; title: string; description?: string; starts_at?: string | null; time_tba?: boolean; venue?: string | null; city?: string | null; country_code: string; status: string; price_min?: string | null; price_max?: string | null; price_note?: string | null; currency: string; image_url?: string | null; last_verified_at?: string | null; artists?: Artist[]; performances?: { id: string; starts_at: string; ends_at?: string | null; time_tba: boolean; status: string; is_current: boolean; performance_label?: string | null }[]; sources?: { source?: string; source_name?: string; url?: string; source_url?: string; fetchedAt?: string; fetched_at?: string }[] };
+export type Concert = { id: string; slug: string; title: string; description?: string; starts_at?: string | null; time_tba?: boolean; venue?: string | null; city?: string | null; country_code: string; status: string; price_min?: string | null; price_max?: string | null; price_note?: string | null; currency: string; image_url?: string | null; image_source_url?: string | null; image_checked_at?: string | null; last_verified_at?: string | null; artists?: Artist[]; performances?: { id: string; starts_at: string; ends_at?: string | null; time_tba: boolean; status: string; is_current: boolean; performance_label?: string | null }[]; sources?: { source?: string; source_name?: string; url?: string; source_url?: string; fetchedAt?: string; fetched_at?: string }[] };
 export type NewsMedia = { type: 'image' | 'video'; url: string | null; thumbnailUrl: string | null };
 export type News = { id: string; artist_name: string; artist_slug: string; platform: string; title?: string; body?: string; summary?: string; source_url: string; image_url?: string; media_items?: NewsMedia[]; published_at?: string; last_verified_at?: string; stale?: boolean; followed?: boolean };
 export type Page<T> = { items: T[]; total?: number; page: number; pageSize: number };
+export type Viewer = { user: { id: string; display_name: string; role: 'user' | 'admin' }; follows: Artist[]; attendance: Concert[] };
+export type FanMedia = { id: string; url: string; type: 'image' | 'video' };
+export type FanPost = { id: string; kind: 'post'; body: string; published_at: string; updated_at: string; author: { id: string; display_name: string }; own: boolean; artists: Artist[]; media: FanMedia[]; likes: number; liked: boolean; comments: number; followed: boolean; reason: string };
+export type FeedNews = News & { kind: 'news'; reason: string };
+export type FeedItem = FanPost | FeedNews;
+export type FeedPage = Page<FeedItem> & { personalized: boolean; tab: string; snapshot?: string; snapshotReset?: boolean };
+export type FeedSidebar = { artists: (Artist & { reason: string })[]; concerts: (Concert & { happening: boolean; followed: boolean })[] };
+export type FanComment = { id: string; body: string; created_at: string; own: boolean; author: { id: string; display_name: string } };
+export type ConcertReview = FanComment & { rating: number; updated_at: string };
+export type ReviewPage = Page<ConcertReview> & { average: string | null; ended: boolean; attended: boolean; canReview: boolean; mine: { id: string; rating: number; body: string; hidden: boolean; updated_at: string } | null };
 
 export const sessionEvent = 'encore-session-change';
+export function concertImageUrl(concert: Concert) {
+  if (!concert.image_url) return null;
+  try {
+    const url = new URL(concert.image_url);
+    if (url.protocol==='https:' && ['www.thaiticketmajor.com','thaiticketmajor.com'].includes(url.hostname)
+      && !url.username && !url.password && !url.port && url.pathname.startsWith('/img_poster/'))
+      return '/api/concerts/'+encodeURIComponent(concert.slug)+'/image';
+  } catch { /* Other stored images retain their original URL. */ }
+  return concert.image_url;
+}
 let sessionEpoch = 0;
 let announcedSignedOut = false;
 let announcedPermissionChange = false;

@@ -5,6 +5,7 @@ import { imageCreditJoin, imageCreditSelect } from '../artist-audit.js';
 
 import { getConcertMonitor, getConcertMonitorWindows } from '../concert-scheduler.js';
 import { concertMonitorCsv, concertMonitorMarkdown, concertCoverageCsv } from '../concert-monitor.js';
+import { fetchTtmPoster, isTtmPoster } from '../concert-images.js';
 
 export const publicRoutes = Router();
 
@@ -85,6 +86,15 @@ publicRoutes.get('/concerts', async (req, res) => {
     params,
   );
   res.json({ items, page, total: Number(count?.total || 0), pageSize: 20 });
+});
+
+publicRoutes.get('/concerts/:id/image', async (req, res) => {
+  const concert = await one<{ image_url: string | null }>('SELECT image_url FROM concerts WHERE id::text=$1 OR slug=$1',[req.params.id]);
+  if (!concert || !isTtmPoster(concert.image_url)) { res.sendStatus(404); return; }
+  try {
+    const image = await fetchTtmPoster(concert.image_url!);
+    res.set('Cache-Control','public, max-age=3600').type(image.type).send(image.data);
+  } catch { res.status(503).json({ error: 'รูปคอนเสิร์ตไม่พร้อมใช้งาน' }); }
 });
 
 publicRoutes.get('/concerts/:id', async (req, res) => {

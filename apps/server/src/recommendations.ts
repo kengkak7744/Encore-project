@@ -8,7 +8,7 @@ export function recommendConcerts(userId: string) {
   )
   SELECT c.id,c.slug,c.title,c.starts_at,c.time_tba,c.city,c.venue,c.price_min,c.price_max,c.price_note,c.currency,c.status,
     bool_or(f.user_id IS NOT NULL) AS followed_artist,count(DISTINCT t.genre)::integer AS matching_genres,
-    array_agg(DISTINCT a.name) AS artists,cs.source_url
+    array_agg(DISTINCT a.name) AS artists,COALESCE(cs.source_url,c.official_url) AS source_url
   FROM concerts c JOIN concert_artists ca ON ca.concert_id=c.id JOIN artists a ON a.id=ca.artist_id
   LEFT JOIN follows f ON f.artist_id=a.id AND f.user_id=$1
   LEFT JOIN tastes t ON t.genre=ANY(a.genres)

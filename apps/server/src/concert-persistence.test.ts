@@ -16,9 +16,13 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
     const dir = new URL('../sql/',import.meta.url);
     for (const file of (await readdir(dir)).filter(name => name.endsWith('.sql')).sort()) await client.query(await readFile(new URL(file,dir),'utf8'));
     t.mock.method(pool,'query',(sql: string,params: unknown[]) => client.query(sql,params));
-    const base: ConcertEvent = { title: 'Fixture Live',url: 'https://www.theconcert.com/p/123',venue: 'Hall A',country: 'TH',startsAt: '2030-12-25T09:00:00Z',endsAt: '2030-12-25T16:00:00Z',priceMin: 350,priceMax: 350,completeSchedule: true };
+    const base: ConcertEvent = { title: 'Fixture Live',url: 'https://www.theconcert.com/p/123',venue: 'Hall A',country: 'TH',startsAt: '2030-12-25T09:00:00Z',endsAt: '2030-12-25T16:00:00Z',priceMin: 350,priceMax: 350,completeSchedule: true,image: 'https://example.com/actual-poster.jpg' };
     await saveSourceEvents('The Concert',[base,{ ...base,startsAt: '2030-12-26T09:00:00Z',endsAt: '2030-12-26T16:00:00Z',priceMin: 590,priceMax: 590 }]);
     let concert = (await client.query('SELECT * FROM concerts')).rows[0];
+    assert.equal(concert.image_url,base.image); assert.equal(concert.image_source_url,base.url); assert.ok(concert.image_checked_at);
+    await saveEvent('The Concert',{ ...base,image: null });
+    const imageRetained = (await client.query('SELECT image_url,image_source_url,image_checked_at FROM concerts WHERE id=$1',[concert.id])).rows[0];
+    assert.equal(imageRetained.image_url,base.image); assert.equal(imageRetained.image_source_url,base.url); assert.deepEqual(imageRetained.image_checked_at,concert.image_checked_at);
     assert.equal(concert.starts_at.toISOString(),base.startsAt!.replace('Z','.000Z'));
     assert.equal(Number(concert.price_min),350); assert.equal(Number(concert.price_max),590);
     assert.equal((await client.query('SELECT count(*)::int n FROM concert_performances')).rows[0].n,2);

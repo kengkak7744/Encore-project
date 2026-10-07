@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseEventpop, parseTheConcert, parseTicketmelon } from './ingest.js';
-import { eventpopUrl, parseTheConcertApi } from './concert-parsers.js';
+import { eventpopUrl, eventpopPoster, parseTheConcertApi } from './concert-parsers.js';
+
+test('Eventpop uses the real full poster when OG contains a placeholder and never substitutes unrelated attachments', () => {
+  const page='https://www.eventpop.me/e/173607';
+  const markup='<meta property="og:image" content="/images/cover-placeholder.jpg"><div class="event-cover"><div class="poster-wrapper"><a href="https://p-u.popcdn.net/poster-large.jpg"><img src="https://p-u.popcdn.net/poster-medium.jpg"></a></div></div><img class="attachment" src="https://example.com/seat-map.jpg">';
+  assert.equal(eventpopPoster(markup,page),'https://p-u.popcdn.net/poster-large.jpg');
+  assert.equal(eventpopPoster('<meta property="og:image" content="/images/cover-placeholder.jpg"><img class="attachment" src="https://example.com/seat-map.jpg">',page),null);
+  assert.equal(eventpopPoster('<div class="event-cover"><img src="javascript:alert(1)"></div><meta property="og:image" content="https://p-u.popcdn.net/cover.jpg">',page),'https://p-u.popcdn.net/cover.jpg');
+  assert.equal(eventpopPoster(markup,'https://example.com/e/173607'),null);
+});
 
 test('Eventpop prefers announced showtime rows over stale metadata and recognizes category without title keywords', () => {
   const markup = `<meta property="og:start_time" content="2026-10-03T18:00:00+07:00"><div><small>Concert</small><div id="event-title"><h2>NONT TANONT ARENA ENCORE</h2></div></div><meta property="og:location" content="Arena, Bangkok, Thailand"><div id="event-showtimes"><div class="ticket-row sold-out"><div class="ticket-detail">04 Oct 2026 18:00</div><div class="ticket-price">฿1,800.00 - ฿5,500.00</div></div></div>`;

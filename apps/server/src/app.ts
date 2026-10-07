@@ -1,11 +1,12 @@
 import express from 'express';
 import { config } from './config.js';
-import { attachUser, requireAdmin } from './auth.js';
+import { attachUser, requireAdmin, requireUser } from './auth.js';
 import { publicRoutes } from './routes/public.js';
 import { accountRoutes } from './routes/account.js';
 import { adminRoutes } from './routes/admin.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { ArtistEditError } from './artist-editor.js';
+import { communityRoutes } from './routes/community.js';
 
 export function createApp() {
   const app = express();
@@ -37,8 +38,10 @@ export function createApp() {
   app.get('/health', (_req, res) => res.json({ ok: true }));
   // Only authenticated administrators can send the larger image-edit payload.
   app.use('/api/admin/artists',attachUser,requireAdmin,express.json({ limit: '3mb' }));
+  // Binary media is parsed only after authentication; other JSON endpoints retain their small limit.
+  app.post('/api/feed/uploads',attachUser,requireUser,express.raw({ limit: '25mb',type: ['image/jpeg','image/png','image/webp','video/mp4','video/webm'] }));
   app.use(express.json({ limit: '100kb' }));
-  app.use('/api', attachUser, publicRoutes, accountRoutes, assistantRoutes);
+  app.use('/api', attachUser, publicRoutes, accountRoutes, communityRoutes, assistantRoutes);
   app.use('/api/admin', attachUser, adminRoutes);
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof ArtistEditError) { res.status(error.status).json({ error: error.message }); return; }

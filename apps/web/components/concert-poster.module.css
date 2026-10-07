@@ -1,0 +1,9 @@
+.poster { margin: 0 0 28px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.poster > a { display: block; }
+.poster img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: contain; }
+.poster figcaption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); background: #fff; }
+.poster figcaption a { display: inline-flex; align-items: center; gap: 5px; color: var(--forest); }
+.poster a:hover { text-decoration: underline; }
+.unavailable { display: grid; justify-items: center; align-content: center; gap: 12px; min-height: 160px; padding: 24px; color: var(--muted); text-align: center; }
+.unavailable p { margin: 0; }
+@media (max-width: 760px) { .poster img { max-height: 420px; } }
