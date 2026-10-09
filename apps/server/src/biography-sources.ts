@@ -1,14 +1,30 @@
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
+import type { Readable } from 'node:stream';
 import * as cheerio from 'cheerio';
 import { robotsAllows } from './ingest.js';
 import { normalizeArtistName, normalizeText, type BiographyArtist, type BiographySource } from './biography-policy.js';
+import { extractArtistRosterText } from './biography-roster.js';
 
 const userAgent = 'ArtistTrackerResearch/0.2 (Encore; public artist biographies)';
 const robotsCache = new Map<string, { text: string; expires: number }>();
 type SourceLink = { source_url: string; label: string };
 export type CollectedSources = { documents: BiographySource[]; errors: { url: string; error: string }[] };
+
+// Artist sites can contain more than 1 MB of scripts; extracted model context
+// remains capped independently. Keep a hard network bound and smaller robots cap.
+export async function readBiographyResponse(response: Readable, maxBytes = 2_000_000): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maxBytes) throw new Error('Source response exceeds size limit');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 export function isPublicAddress(address: string): boolean {
   if (isIP(address) === 4) {
@@ -19,7 +35,7 @@ export function isPublicAddress(address: string): boolean {
   return isIP(address) === 6 && /^[23]/i.test(address) && !/^2001:db8:/i.test(address);
 }
 
-async function publicGet(url: URL, signal: AbortSignal, maxBytes = 1_000_000): Promise<{ status: number; type: string; location?: string; text: string }> {
+async function publicGet(url: URL, signal: AbortSignal, maxBytes?: number): Promise<{ status: number; type: string; location?: string; text: string }> {
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) throw new Error('Only public HTTPS sources on port 443 are allowed');
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
@@ -29,15 +45,7 @@ async function publicGet(url: URL, signal: AbortSignal, maxBytes = 1_000_000): P
   // Pin the checked address for the connection to prevent DNS rebinding into the local network.
   return new Promise((resolve, reject) => {
     const req = request(url, { method: 'GET', family: address.family, lookup: (_hostname, _options, callback) => callback(null, address.address, address.family), signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), headers: { 'User-Agent': userAgent, Accept: 'text/html,application/json,text/plain' } }, (res) => {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      res.on('data', (chunk: Buffer) => {
-        size += chunk.length;
-        if (size > maxBytes) { res.destroy(new Error('Source response exceeds size limit')); return; }
-        chunks.push(chunk);
-      });
-      res.on('error', reject);
-      res.on('end', () => resolve({ status: res.statusCode || 0, type: String(res.headers['content-type'] || ''), location: res.headers.location, text: Buffer.concat(chunks).toString('utf8') }));
+      void readBiographyResponse(res, maxBytes).then((text) => resolve({ status: res.statusCode || 0, type: String(res.headers['content-type'] || ''), location: res.headers.location, text }), reject);
     });
     req.on('error', reject);
     req.end();
@@ -64,14 +72,17 @@ export function extractBiographyText(html: string): string {
   return normalizeText(title + '\n' + (paragraphs.length ? paragraphs.join('\n') : root.text()));
 }
 
-async function readSource(link: SourceLink, signal: AbortSignal): Promise<BiographySource> {
+async function readSource(link: SourceLink, signal: AbortSignal, artist: BiographyArtist): Promise<BiographySource> {
   let url = new URL(link.source_url);
   for (let redirects = 0; redirects <= 3; redirects++) {
     await permitted(url, signal);
     const response = await publicGet(url, signal);
     if ([301, 302, 303, 307, 308].includes(response.status) && response.location) { url = new URL(response.location, url); continue; }
     if (response.status !== 200 || !response.type.includes('html')) throw new Error('Source is not accessible HTML: HTTP ' + response.status);
-    const text = extractBiographyText(response.text).slice(0, 2400);
+    const roster=['www.whattheduckmusic.com','whattheduckmusic.com'].includes(url.hostname)&&/^\/a\/?$/.test(url.pathname);
+    const extracted=roster?extractArtistRosterText(response.text,[artist.name,artist.name_en||''],artist.instagram_handle||undefined):extractBiographyText(response.text);
+    if(extracted===null)throw new Error('Roster does not contain one matching artist and verified Instagram account');
+    const text = extracted.slice(0, 2400);
     if (text.length < 250) throw new Error('Source contains too little readable biography text');
     return { id: '', url: url.toString(), label: link.label.slice(0, 160), text, fetchedAt: new Date().toISOString() };
   }
@@ -113,9 +124,10 @@ async function discoverWikipedia(artist: BiographyArtist, signal: AbortSignal): 
 export async function collectBiographySources(artist: BiographyArtist, links: SourceLink[], signal: AbortSignal): Promise<CollectedSources> {
   const documents: BiographySource[] = [];
   const errors: CollectedSources['errors'] = [];
-  for (const link of links.slice(0, 6)) {
+  const uniqueLinks = links.filter((link, index) => links.findIndex((other) => other.source_url === link.source_url) === index);
+  for (const link of uniqueLinks.slice(0, 6)) {
     if (documents.length >= 3) break;
-    try { documents.push(await readSource(link, signal)); }
+    try { documents.push(await readSource(link, signal, artist)); }
     catch (error) { signal.throwIfAborted(); errors.push({ url: link.source_url, error: error instanceof Error ? error.message : 'Failed to read source' }); }
   }
   if (documents.length < 3) {

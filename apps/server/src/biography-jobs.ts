@@ -73,10 +73,11 @@ export async function runBiographyCycle(options: CycleOptions = {}) {
     if (!window) return { status: 'outside_window' };
     const total = await client.query<{ count: number }>('SELECT count(*)::integer AS count FROM biography_runs WHERE window_date=$1', [window.date]);
     if (total.rows[0].count >= config.biographyMaxPerNight) return { status: 'night_limit' };
-    const candidates = await client.query<BiographyArtist>(`SELECT a.id,a.slug,a.name,a.name_en,a.kind,a.updated_at::text AS updated_at FROM artists a
+    const candidates = await client.query<BiographyArtist>(`SELECT a.id,a.slug,a.name,a.name_en,a.kind,a.updated_at::text AS updated_at,
+      (SELECT s.handle FROM social_accounts s WHERE s.artist_id=a.id AND s.platform='instagram' AND s.verified_at IS NOT NULL ORDER BY s.id LIMIT 1) AS instagram_handle FROM artists a
       WHERE NOT a.biography_manual_override AND NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)
       AND NOT EXISTS (SELECT 1 FROM biography_runs r WHERE r.artist_id=a.id AND r.window_date=$1)
-      ORDER BY a.created_at,a.id LIMIT 1`, [window.date]);
+      ORDER BY (SELECT max(r.started_at) FROM biography_runs r WHERE r.artist_id=a.id) ASC NULLS FIRST,a.created_at,a.id LIMIT 1`, [window.date]);
     const artist = candidates.rows[0];
     if (!artist) return { status: 'empty_queue' };
     const claimed = await client.query<{ id: string }>('INSERT INTO biography_runs(artist_id,window_date,model) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id::text', [artist.id, window.date, config.biographyModel]);

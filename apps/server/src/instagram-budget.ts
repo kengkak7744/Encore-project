@@ -1,5 +1,6 @@
 import { pool, one, query } from './db.js';
 import { config } from './config.js';
+import { instagramPacing } from './instagram-policy.js';
 
 export type InstagramUsage = { callCount: number | null; totalTime: number | null; cpuTime: number | null; regainMinutes: number | null };
 export function instagramUsage(headers: Headers): InstagramUsage | null {
@@ -55,19 +56,27 @@ export async function withInstagramBudget<T>(work: (budget: InstagramBudget) => 
     let reserved = false;
     return await work({
       beforeRequest: async () => {
-        // A probe and its optional media request belong to the same account slot.
+        // Scheduled discovery, text and media each reserve one request slot.
         await query(`UPDATE instagram_sync_budget SET last_request_at=now(),next_request_at=CASE WHEN $2 THEN next_request_at
-          ELSE now()+$1::integer*interval '1 second' END WHERE id=1`, [config.instagramRequestSpacingSeconds,reserved]);
+          ELSE now()+(CASE WHEN NOT $3 THEN $1
+            WHEN usage_checked_at>=now()-interval '15 minutes' AND usage_checked_at<=now() THEN GREATEST($4,spacing_seconds)
+            ELSE GREATEST($1,spacing_seconds) END)::integer*interval '1 second' END WHERE id=1`,
+          [config.instagramRequestSpacingSeconds,reserved,config.instagramAdaptivePacingEnabled,Math.min(config.instagramRequestSpacingSeconds,config.instagramMinSpacingSeconds)]);
         reserved = true;
       },
       observe: async (response, rateLimited) => {
-        const state = await one<{ consecutive_limits: number }>('SELECT consecutive_limits FROM instagram_sync_budget WHERE id=1');
+        const state = await one<{ consecutive_limits: number; spacing_seconds: number; healthy_responses: number }>('SELECT consecutive_limits,spacing_seconds,healthy_responses FROM instagram_sync_budget WHERE id=1');
         const cooldown = instagramCooldown(response.headers, rateLimited, state?.consecutive_limits || 0);
+        const paced = instagramPacing(cooldown.usage,state?.spacing_seconds || config.instagramRequestSpacingSeconds,state?.healthy_responses || 0);
+        const pacing = response.ok && cooldown.minutes===0 ? paced : { seconds: Math.max(config.instagramRequestSpacingSeconds,paced.seconds),healthy: 0 };
         await query(`UPDATE instagram_sync_budget SET usage=CASE WHEN $1::jsonb IS NULL THEN usage ELSE $1::jsonb END,
           usage_checked_at=CASE WHEN $1::jsonb IS NULL THEN usage_checked_at ELSE now() END,
           consecutive_limits=CASE WHEN $2 THEN consecutive_limits+1 WHEN $3=0 THEN 0 ELSE consecutive_limits END,
           paused_until=CASE WHEN $3>0 THEN GREATEST(paused_until,now()+$3::double precision*interval '1 minute') ELSE paused_until END,
-          pause_reason=CASE WHEN $3>0 THEN $4 ELSE pause_reason END WHERE id=1`, [cooldown.usage ? JSON.stringify(cooldown.usage) : null,rateLimited,cooldown.minutes,cooldown.reason]);
+          pause_reason=CASE WHEN $3>0 THEN $4 ELSE pause_reason END,
+          spacing_seconds=$5,healthy_responses=$6,
+          next_request_at=GREATEST(next_request_at,last_request_at+$5::integer*interval '1 second') WHERE id=1`,
+          [cooldown.usage ? JSON.stringify(cooldown.usage) : null,rateLimited,cooldown.minutes,cooldown.reason,pacing.seconds,pacing.healthy]);
       },
       paused: async () => !!(await one<{ paused: boolean }>('SELECT paused_until>now() AS paused FROM instagram_sync_budget WHERE id=1'))?.paused,
     });

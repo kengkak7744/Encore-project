@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { getDataUsage } from '../data-usage.js';
+import { getInstagramMonitor } from '../instagram-monitor.js';
 import { requireAdmin } from '../auth.js';
 import { one, query } from '../db.js';
 import { ArtistEditError, editArtist } from '../artist-editor.js';
@@ -7,6 +9,7 @@ import { saveManagedConcert, saveManagedPerformance } from '../admin-concerts.js
 
 export const adminRoutes = Router();
 adminRoutes.use(requireAdmin);
+adminRoutes.get('/instagram-monitor',async (_req,res)=>{res.json(await getInstagramMonitor());});
 adminRoutes.use(managementRoutes);
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -78,3 +81,9 @@ adminRoutes.patch('/concerts/:id/performances/:performanceId',async (req,res) =>
 });
 
 adminRoutes.get('/sync-runs', async (_req, res) => { res.json({ items: await query('SELECT * FROM sync_runs ORDER BY started_at DESC LIMIT 100') }); });
+
+adminRoutes.get('/data-usage',async (req,res) => {
+  const period = req.query.period ?? '24h';
+  if ((period !== '24h' && period !== '7d') || Object.keys(req.query).some(key => key !== 'period')) { res.status(400).json({ error: 'เลือกช่วง 24h หรือ 7d' }); return; }
+  res.json(await getDataUsage(period));
+});

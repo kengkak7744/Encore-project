@@ -3,6 +3,7 @@ import { artistAuditCorrections } from './artist-audit-corrections.js';
 import { artistPopularityEvidence } from './artist-popularity-evidence.js';
 import { reviewedArtistImages, reviewedArtistPopularity } from './artist-review.js';
 import { applyMembershipReview } from './artist-membership-audit.js';
+import { applyExpansionPopularity } from './artist-expansion-popularity-apply.js';
 
 // Use the same projection everywhere artists with photos are returned. An admin
 // replacement image must never inherit the license belonging to a different URL.
@@ -11,6 +12,7 @@ export const imageCreditJoin = 'LEFT JOIN artist_image_credits ic ON ic.artist_i
 
 // Caller owns the transaction; updates and image credits are committed together.
 export async function applyArtistAudit(client: Pick<PoolClient, 'query'>) {
+  await applyExpansionPopularity(client);
   await applyMembershipReview(client);
   for (const correction of artistAuditCorrections) {
     if (correction.oldBio) {

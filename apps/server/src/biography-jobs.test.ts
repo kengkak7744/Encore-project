@@ -84,6 +84,25 @@ test('biography worker integration on an isolated database', { skip: !databaseUr
       assert.equal((await run({ generate: async () => bad })).status, 'insufficient_sources');
       assert.equal((await database.query('SELECT * FROM artist_biography_sections')).rowCount, 0);
     });
+    await t.test('new nights try unattempted profiles before repeating failures, then rotate oldest retries', async () => {
+      await reset();
+      const ids: string[] = [];
+      for (let index = 0; index < 11; index++) {
+        ids.push((await database.query<{ id: string }>("INSERT INTO artists(slug,name,kind,created_at) VALUES($1,$1,'solo',$2) RETURNING id", ['queued-' + index, new Date(Date.UTC(2026, 9, 1, 0, index))])).rows[0].id);
+      }
+      const attempted: string[] = [];
+      const fail = () => run({ collect: async (candidate) => { attempted.push(candidate.id); return { documents: [], errors: [] }; } });
+      for (let index = 0; index < 10; index++) assert.equal((await fail()).status, 'insufficient_sources');
+      assert.deepEqual(attempted, ids.slice(0, 10));
+      assert.equal((await fail()).status, 'night_limit');
+      for (let index = 0; index < 10; index++) await database.query("UPDATE biography_runs SET started_at=$2 WHERE artist_id=$1 AND window_date='2026-10-03'", [ids[index], new Date(Date.UTC(2026, 9, 3, 16, index))]);
+      clock = new Date('2026-10-04T16:05:00Z');
+      assert.equal((await fail()).status, 'insufficient_sources');
+      assert.equal(attempted[10], ids[10], 'Failures must not starve profiles that have never been tried');
+      await database.query("UPDATE biography_runs SET started_at=$2 WHERE artist_id=$1 AND window_date='2026-10-03'", [ids[0], '2026-10-03T16:10:00Z']);
+      assert.equal((await fail()).status, 'insufficient_sources');
+      assert.equal(attempted[11], ids[1], 'Retry the oldest previous attempt first');
+    });
     await t.test('a generation finishing at midnight cannot publish', async () => {
       await reset(); await artist();
       assert.equal((await run({ generate: async () => { clock = new Date('2026-10-03T17:00:00Z'); return draft; } })).status, 'failed');

@@ -3,7 +3,7 @@ export type ArtistImageCredit = { creator: string; title: string; source_url: st
 export type EditableArtist = Artist & { edit_version: string; biography_manual_override?: boolean; image_manual_override?: boolean };
 export type ArtistMembershipEvidence = { checkedAt: string; pending: string[]; claims: { kind: string; status: 'current' | 'historical' | 'unclear'; text: string; sourceUrl: string; sourceLabel: string; publishedAt?: string; reproductionUrl?: string }[] };
 export type ArtistPopularityEvidence = { status: string; metric: string; value?: number | null; sourceUrl: string; sourceLabel?: string; work?: string; sourceDate?: string | null; measuredAt?: string | null; checkedAt: string; note: string };
-export type Concert = { id: string; slug: string; title: string; description?: string; starts_at?: string | null; time_tba?: boolean; venue?: string | null; city?: string | null; country_code: string; status: string; price_min?: string | null; price_max?: string | null; price_note?: string | null; currency: string; image_url?: string | null; image_source_url?: string | null; image_checked_at?: string | null; last_verified_at?: string | null; artists?: Artist[]; performances?: { id: string; starts_at: string; ends_at?: string | null; time_tba: boolean; status: string; is_current: boolean; performance_label?: string | null }[]; sources?: { source?: string; source_name?: string; url?: string; source_url?: string; fetchedAt?: string; fetched_at?: string }[] };
+export type Concert = { id: string; slug: string; title: string; description?: string; starts_at?: string | null; time_tba?: boolean; venue?: string | null; venue_location?: {address:string|null;latitude:number|null;longitude:number|null;placeId:string|null;sourceUrl:string;checkedAt:string}|null; city?: string | null; country_code: string; status: string; price_min?: string | null; price_max?: string | null; price_note?: string | null; currency: string; image_url?: string | null; image_source_url?: string | null; image_checked_at?: string | null; last_verified_at?: string | null; artists?: Artist[]; performances?: { id: string; starts_at: string; ends_at?: string | null; time_tba: boolean; status: string; is_current: boolean; performance_label?: string | null }[]; sources?: { source?: string; source_name?: string; url?: string; source_url?: string; fetchedAt?: string; fetched_at?: string }[] };
 export type NewsMedia = { type: 'image' | 'video'; url: string | null; thumbnailUrl: string | null };
 export type News = { id: string; artist_name: string; artist_slug: string; platform: string; title?: string; body?: string; summary?: string; source_url: string; image_url?: string; media_items?: NewsMedia[]; published_at?: string; last_verified_at?: string; stale?: boolean; followed?: boolean };
 export type Page<T> = { items: T[]; total?: number; page: number; pageSize: number };
@@ -74,5 +74,10 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export function date(value?: string | null, timeTba = false) { return value ? new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', ...(timeTba ? {} : { timeStyle: 'short' as const }), timeZone: 'Asia/Bangkok' }).format(new Date(value)) + (timeTba ? ' · เวลาไม่ระบุ' : '') : 'ยังไม่ประกาศ'; }
-export function price(value?: string | number | null) { return value === null || value === undefined ? 'ยังไม่ประกาศราคา' : '฿' + Number(value).toLocaleString('th-TH'); }
+export function price(value?: string | number | null,currency?: string | null) {
+  if(value===null||value===undefined||value===''||!Number.isFinite(Number(value))||Number(value)<0)return 'ยังไม่ประกาศราคา';
+  const code=currency?.toUpperCase();
+  if(!code||code==='XXX'||!/^[A-Z]{3}$/.test(code))return Number(value).toLocaleString('th-TH')+' (ไม่ทราบสกุลเงิน)';
+  return new Intl.NumberFormat('th-TH',{style:'currency',currency:code,currencyDisplay:'code',maximumFractionDigits:2}).format(Number(value));
+}
 export function stale(value?: string | null) { return !value || Date.now() - new Date(value).getTime() > 2 * 60 * 60 * 1000; }

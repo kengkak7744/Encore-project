@@ -3,9 +3,12 @@ import { config } from '../config.js';
 import { ollamaJson } from '../ollama.js';
 import { one, query } from '../db.js';
 import { requireUser, revalidateUser, type User } from '../auth.js';
-import { cityCode, drivingDistance } from '../travel.js';
+import { cityCode } from '../travel.js';
+import { exploreRoute } from '../google-maps.js';
+import { sourceLocation,locationTarget,physicalVenue,deliveryVenue } from '../concert-location.js';
 import { hotelQuote } from '../agoda.js';
 import { recommendConcerts } from '../recommendations.js';
+import { relevantKnowledge } from '../knowledge.js';
 import { applyManualPrices, BudgetInputError, manualPrices, tripTotals, type TripItem } from '../trip-prices.js';
 
 export const assistantRoutes = Router();
@@ -27,15 +30,15 @@ assistantRoutes.post('/chat', async (req, res) => {
   const cities = await query<{ city: string }>('SELECT DISTINCT city FROM concerts WHERE city IS NOT NULL LIMIT 100');
   let directArtist = artists.find((artist) => [artist.name, artist.name_en].some((name) => name && message.toLocaleLowerCase().includes(name.toLocaleLowerCase())));
   let directCity = cities.find((row) => message.toLocaleLowerCase().includes(row.city.toLocaleLowerCase()));
-  const classifierInstructions = 'เลือก intent ตามสิ่งที่ผู้ใช้ต้องการ: news=ข่าวหรือโพสต์ศิลปิน, concerts=ค้นวัน/สถานที่/ราคางาน, recommendations=ขอแนะนำงานตามรสนิยม, budget=คำนวณงบทริป, unknown=เรื่องอื่น. การมีชื่อศิลปินไม่ได้แปลว่า concerts. ตัวอย่าง "ข่าวศิลปินล่าสุด" ต้องเป็น news; "แนะนำงานจากศิลปินที่ติดตาม" ต้องเป็น recommendations; "ช่วยวางงบทริป" ต้องเป็น budget. ';
+  const classifierInstructions = 'เลือก intent ตามสิ่งที่ผู้ใช้ต้องการ: news=ข่าวหรือโพสต์ศิลปิน, concerts=ค้นวัน/สถานที่/ราคางาน, recommendations=ขอแนะนำงานตามรสนิยม, budget=คำนวณงบทริป, search=ค้นข้อความหรือหัวข้อในข่าว/คอนเสิร์ต เช่น ค้นโพสต์เกี่ยวกับอัลบั้มใหม่, unknown=เรื่องอื่น. การมีชื่อศิลปินไม่ได้แปลว่า concerts. ตัวอย่าง "ข่าวศิลปินล่าสุด" ต้องเป็น news; "แนะนำงานจากศิลปินที่ติดตาม" ต้องเป็น recommendations; "ช่วยวางงบทริป" ต้องเป็น budget. ';
   try {
     const body = await ollamaJson(config.ollamaUrl,'/api/chat',{ model: config.chatModel, stream: false, think: false, format: {
       type: 'object',required: ['intent','artist','city','month','year'],additionalProperties: false,
-      properties: { intent: { type: 'string',enum: ['concerts','news','recommendations','budget','unknown'] },artist: { type: ['string','null'] },city: { type: ['string','null'] },month: { type: ['integer','null'],minimum: 1,maximum: 12 },year: { type: ['integer','null'] } },
-    }, options: { temperature: 0, num_ctx: 4096,num_predict: 256 }, messages: [{ role: 'system', content: classifierInstructions+'จัดประเภทคำถามแฟนเพลงเท่านั้น ห้ามตอบข้อเท็จจริงหรือสร้าง URL. artist/city เป็นชื่อที่ผู้ใช้ถาม ถ้าไม่ระบุคืน null. ถ้าศิลปินไม่อยู่ในรายชื่อให้คงชื่อที่ถามไว้ ห้ามแทนด้วยศิลปินอื่น. ถ้ามีชื่อไทยที่ตรงศิลปินในรายชื่อให้ใช้ชื่อในรายชื่อ. month/year เป็นเดือน1–12/ปีค.ศ.ที่ถาม ไม่ระบุคืนnull. คำถามนอกเรื่องหรือข้อเท็จจริงที่ไม่ใช่คอนเสิร์ต/ข่าว/คำแนะนำ/งบให้intent unknown. รายชื่อศิลปิน: '+JSON.stringify(artists.map(a => [a.name,a.name_en])) }, { role: 'user', content: message }] },{ interactive: true,signal: disconnected.signal,timeoutMs: 60000 });
+      properties: { intent: { type: 'string',enum: ['concerts','news','recommendations','budget','search','unknown'] },artist: { type: ['string','null'] },city: { type: ['string','null'] },month: { type: ['integer','null'],minimum: 1,maximum: 12 },year: { type: ['integer','null'] } },
+    }, options: { temperature: 0, num_ctx: 4096,num_predict: 256 }, messages: [{ role: 'system', content: classifierInstructions+'จัดประเภทคำถามแฟนเพลงเท่านั้น ห้ามตอบข้อเท็จจริงหรือสร้าง URL. artist/city เป็นชื่อที่ผู้ใช้ถาม ถ้าไม่ระบุคืน null. ถ้าศิลปินไม่อยู่ในรายชื่อให้คงชื่อที่ถามไว้ ห้ามแทนด้วยศิลปินอื่น. ถ้ามีชื่อไทยที่ตรงศิลปินในรายชื่อให้ใช้ชื่อในรายชื่อ. month/year เป็นเดือน1–12/ปีค.ศ.ที่ถาม ไม่ระบุคืนnull. คำถามนอกเรื่อง/ข้อมูลส่วนตัว/ประวัติที่ไม่ใช่ข่าวหรือคอนเสิร์ตให้intent unknown. searchใช้ค้นข้อความเกี่ยวกับข่าว/คอนเสิร์ตเท่านั้น ไม่ใช้แทนการขอข่าวล่าสุดหรือค้นวัน/เมือง/ราคาที่ระบุชัด. รายชื่อศิลปิน: '+JSON.stringify(artists.map(a => [a.name,a.name_en])) }, { role: 'user', content: message }] },{ interactive: true,signal: disconnected.signal,timeoutMs: 60000 });
     if (!await revalidateUser(req,res)) return;
     const selection = JSON.parse(body.message?.content || '{}') as { intent?: string; artist?: unknown; city?: unknown; month?: unknown; year?: unknown };
-    if (!selection || !['concerts','news','recommendations','budget','unknown'].includes(selection.intent || '')) throw Error('Invalid AI classification');
+    if (!selection || !['concerts','news','recommendations','budget','search','unknown'].includes(selection.intent || '')) throw Error('Invalid AI classification');
     const intent = selection.intent;
     if (!directArtist && typeof selection.artist==='string' && selection.artist.trim()) {
       directArtist = artists.find(artist => [artist.name,artist.name_en,artist.slug].some(name => name?.toLowerCase()===selection.artist?.toString().trim().toLowerCase()));
@@ -57,6 +60,11 @@ assistantRoutes.post('/chat', async (req, res) => {
       month = next ? currentMonth%12+1 : currentMonth;
       year = currentYear+(next && currentMonth===12 ? 1 : 0);
     } else if (month && !year) year = currentYear;
+    if(intent==='search'){
+      const chunks=(await relevantKnowledge(message,{artistId:directArtist?.id,signal:disconnected.signal})).filter(chunk=>chunk.source_url);
+      if(!await revalidateUser(req,res))return;
+      res.json({answer:chunks.length?'ข้อความอ้างอิงที่ค้นพบในระบบ (โปรดตรวจว่าตรงกับสิ่งที่ถาม):\n\n'+chunks.map(chunk=>chunk.content.slice(0,800)+'\nแหล่ง: '+chunk.source_url).join('\n\n'):'ยังไม่พบข้อความอ้างอิงที่ตรงพอจะยืนยันคำตอบ บางรายการอาจยังรอจัดทำดัชนี ลองถามข่าวล่าสุดหรือค้นคอนเสิร์ตโดยระบุศิลปิน',sources:[...new Set(chunks.map(chunk=>chunk.source_url))]});return;
+    }
     if (intent === 'budget') { res.json({ answer: 'เปิดเครื่องคำนวณงบทริปในหน้านี้เพื่อแยกราคาบัตร การเดินทาง และที่พัก โดยระบบจะแสดงประเภทราคาแต่ละรายการ', sources: [] }); return; }
     if (intent === 'news') {
       const news = await query<{ body: string | null; summary: string | null; source_url: string; published_at: string | null; artist: string }>('SELECT n.body,n.summary,n.source_url,n.published_at,a.name AS artist FROM news_items n JOIN artists a ON a.id=n.artist_id WHERE NOT n.hidden AND ($1::uuid IS NULL OR n.artist_id=$1) ORDER BY n.published_at DESC NULLS LAST LIMIT 5', [directArtist?.id || null]);
@@ -90,6 +98,7 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   const people = Number(req.body?.people ?? 1);
   const rooms = Number(req.body?.rooms ?? Math.ceil(people/2));
   const distanceKm = Number(req.body?.distanceKm ?? 0);
+  const useExternalProviders = req.body?.useExternalProviders === true;
   const prices = manualPrices(req.body?.manualPrices);
   const transport = req.body?.transport ?? 'bus';
   if (!['bus','train','flight','car','none'].includes(transport) || !Number.isInteger(rooms) || rooms<1 || rooms>people) {
@@ -98,7 +107,7 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(concertId) || !origin || origin.length>80 || !Number.isInteger(nights) || nights<0 || nights>14 || !Number.isInteger(people) || people<1 || people>10 || !Number.isFinite(distanceKm) || distanceKm<0 || distanceKm>3000) {
     res.status(400).json({ error: 'กรุณาตรวจคอนเสิร์ต เมืองต้นทาง จำนวนคน จำนวนคืน และระยะทาง' }); return;
   }
-  const concert = await one<{ id: string; title: string; city: string | null; venue: string | null; country_code: string; price_min: string | null; currency: string; starts_at: string | null; last_verified_at: string | null; price_note: string | null; source_url: string | null }>(`SELECT c.*,cs.source_url FROM concerts c LEFT JOIN LATERAL (SELECT source_url FROM concert_sources WHERE concert_id=c.id ORDER BY CASE source_role WHEN 'organizer' THEN 0 ELSE 1 END,fetched_at DESC LIMIT 1) cs ON true WHERE c.id=$1`, [concertId]);
+  const concert = await one<{ id: string; title: string; city: string | null; venue: string | null; venue_location:any; country_code: string; price_min: string | null; currency: string; starts_at: string | null; last_verified_at: string | null; price_note: string | null; source_url: string | null }>(`SELECT c.*,cs.source_url FROM concerts c LEFT JOIN LATERAL (SELECT source_url FROM concert_sources WHERE concert_id=c.id ORDER BY CASE source_role WHEN 'organizer' THEN 0 ELSE 1 END,fetched_at DESC LIMIT 1) cs ON true WHERE c.id=$1`, [concertId]);
   if (!concert) { res.status(404).json({ error: 'ไม่พบคอนเสิร์ต' }); return; }
   const ticket = concert.price_min != null && !concert.price_note ? Number(concert.price_min) * people : null;
   const destination = concert.city || 'ไม่ทราบเมือง';
@@ -114,10 +123,13 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   const checkOut = checkIn ? new Date(parsedDate.getTime()+nights*86400000).toISOString().slice(0,10) : null;
   let usedDistanceKm = distanceKm;
   let distanceSource = distanceKm ? 'user' : 'unavailable';
-  if (!sameCity && concert.country_code === 'TH' && origin && concert.city) {
+  const location=sourceLocation(concert.venue_location,concert.venue_location?.sourceUrl,concert.venue_location?.checkedAt,concert.country_code);
+  const target=locationTarget(location);
+  if (useExternalProviders && !Object.hasOwn(req.body,'distanceKm') && !sameCity && concert.country_code === 'TH' && target && physicalVenue(concert.venue) && !deliveryVenue(concert.venue)) {
     try {
-      const route = await drivingDistance(origin + ', Thailand', [concert.venue, concert.city, 'Thailand'].filter(Boolean).join(', '));
-      if (route) { usedDistanceKm = route.distanceKm; distanceSource = 'Google Routes'; }
+      const coordinates=location&&!location.placeId&&location.latitude!==null&&location.longitude!==null?{latitude:location.latitude,longitude:location.longitude}:undefined;
+      const route = await exploreRoute({origin:origin+', Thailand',destination:location?.address || target,destinationId:location?.placeId || undefined,destinationCoordinates:coordinates,mode:'DRIVE'});
+      if (route.distanceKm!==null) { usedDistanceKm = route.distanceKm; distanceSource = 'Google Routes'; }
     } catch { /* Keep the user-entered distance when Routes is unavailable. */ }
   }
   const distanceNote = distanceSource === 'Google Routes' ? 'ระยะทางถนนจาก Google Routes' : 'ระยะทางที่กรอก';
@@ -129,7 +141,7 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
     { kind: 'car', label: 'รถส่วนตัว', amount: sameCity ? 0 : domestic && usedDistanceKm ? Math.round(usedDistanceKm * 2 / 12 * 38) : null, priceType: sameCity || domestic && usedDistanceKm ? 'estimate' : 'unavailable', note: sameCity ? 'ไม่มีค่าเดินทางระหว่างเมือง ไม่รวมเดินทางในเมือง' : domestic ? `ประมาณที่ 12 กม./ลิตร น้ำมัน 38 บาท/ลิตร จาก${distanceNote}; รวมทั้งรถ ไม่รวมค่าทางด่วนและที่จอด` : 'ไม่ประเมินถนนข้ามประเทศจากระยะทางไทย' },
     { kind: 'hotel', label: 'ที่พัก', amount: nights ? nights * 1200 * rooms : 0, priceType: 'estimate', note: nights ? 'ประมาณ 1,200 บาทต่อห้องต่อคืนตามจำนวนห้องที่ระบุ ยังไม่ได้ตรวจราคา Agoda' : 'ไม่พักค้างคืน',searchUrl: 'https://www.agoda.com/th-th/',provider: 'Agoda' },
   ];
-  if (!prices.hotel && checkIn && checkOut && nights && country && parsedDate.getTime()>Date.now()) {
+  if (useExternalProviders && !prices.hotel && checkIn && checkOut && nights && country && parsedDate.getTime()>Date.now()) {
     try {
       const hotel = await hotelQuote({ destination,checkIn,checkOut,nights,rooms,adults: people,travellerCountry: country });
       if (hotel) Object.assign(estimates[5], { amount: hotel.amount, priceType: hotel.live ? 'live' : 'observed', note: hotel.live ? 'ข้อเสนอ Agoda รวมทั้งการเข้าพักตามวัน/คน/ห้องที่ระบุ รวมค่าธรรมเนียมบังคับที่ API ส่งมา; ค่าบริการจ่ายที่โรงแรมอาจเพิ่ม ราคาอาจเปลี่ยน' : 'ข้อมูลทดสอบ Agoda sandbox ไม่ใช่ราคาจองจริง',observedAt: hotel.observedAt,validUntil: hotel.validUntil,sourceUrl: hotel.sourceUrl });
@@ -138,7 +150,7 @@ assistantRoutes.post('/trip-estimates', async (req, res) => {
   const generatedAt = new Date().toISOString();
   const baseItems = estimates.map(item => ({ ...item,currency: item.kind==='ticket' ? concert.currency : 'THB' })) as TripItem[];
   const items = applyManualPrices(baseItems,prices,{ people,rooms,nights,enteredAt: generatedAt });
-  const inputs = { concertId,origin,people,nights,rooms,distanceKm,checkInDate: checkIn,travellerCountry: country,transport,manualPrices: prices };
+  const inputs = { concertId,origin,people,nights,rooms,distanceKm,checkInDate: checkIn,travellerCountry: country,transport,manualPrices: prices,useExternalProviders };
   const estimate = { concert: { id: concert.id,title: concert.title,destination,startsAt: concert.starts_at },origin,people,nights,stay: { checkIn: checkIn || null,checkOut,rooms,travellerCountry: country || null },distanceKmUsed: usedDistanceKm || null,distanceSource,currency: 'THB',items,summary: tripTotals(items,transport),generatedAt,disclaimer: 'งบใช้วางแผนเท่านั้น ราคาที่ผู้ใช้กรอกยังไม่ได้ยืนยันกับผู้ให้บริการ ยอดรวมเลือกการเดินทางหนึ่งแบบ ไม่รวมเดินทางในเมือง ทางด่วน ที่จอด และไม่แปลงสกุลเงิน กรุณาตรวจราคาจริงก่อนจอง' };
   let saved = null;
   if (!await revalidateUser(req,res)) return;

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { discoverConcertSource, rotatingUrls } from './concert-discovery.js';
 import { buildConcertMonitor, concertCoverageCsv, concertMonitorMarkdown, type MonitorRun } from './concert-monitor.js';
 import { parseTtmListing } from './ttm-listing.js';
+import { pool } from './db.js';
 
 const card = `<div class="box-txt"><a class="title" href="/concert/fixture-live.html">Fixture Live Concert</a>
 <span class="datetime"><span class="txt-label">Public Sale</span><span>17 ต.ค. 2569, 10:00 น.</span></span>
@@ -10,6 +11,7 @@ const card = `<div class="box-txt"><a class="title" href="/concert/fixture-live.
 <a class="venue"><span>อิมแพ็ค อารีน่า เมืองทองธานี</span></a></div>`;
 
 test('TTM blocked details retain explicit show dates from public cards without inventing times or prices',async t => {
+  t.mock.method(pool,'query',async ()=>({rows:[]}));
   t.mock.method(globalThis,'fetch',async (input: string | URL) => {
     const url = new URL(input);
     if (url.pathname === '/robots.txt') return new Response('User-agent: *\nAllow: /');
@@ -41,15 +43,34 @@ test('Coverage totals use distinct latest page outcomes while cadence passes ind
   assert.ok(!('pages' in result.rows[0].metrics),'Hourly response must not repeat full catalogs and per-page evidence');
 });
 
-test('TTM cards reject ambiguous date ranges, impossible dates, other hosts and online reruns',() => {
+test('TTM cards retain two adjacent announced dates in short and repeated-year ranges',() => {
   const page = 'https://www.thaiticketmajor.com/concert/';
-  for (const value of ['19-20 ธันวาคม 2569','19 ธันวาคม 2569 ถึง 20 มกราคม 2570','31 กุมภาพันธ์ 2570']) {
+  for (const value of ['19-20 ธันวาคม 2569','19 ธ.ค. 2569 - 20 ธ.ค. 2569','วันเสาร์ที่ 19 - วันอาทิตย์ที่ 20 ธันวาคม 2569']) {
+    const result = parseTtmListing(card.replace('วันเสาร์ที่ 19 และ วันอาทิตย์ที่ 20 ธันวาคม 2569',value),page);
+    assert.equal(result.length,2,value);
+    assert.deepEqual(result.map(row => row.startsAt),['2026-12-18T17:00:00.000Z','2026-12-19T17:00:00.000Z']);
+    assert.ok(result.every(row => row.timeTba && row.listingOnly && !row.completeSchedule && row.endsAt == null && row.priceMin == null));
+  }
+});
+
+test('TTM cards reject long or ambiguous ranges, impossible dates, other hosts and online reruns',() => {
+  const page = 'https://www.thaiticketmajor.com/concert/';
+  for (const value of ['19-22 ธันวาคม 2569','20-19 ธันวาคม 2569','19 ธันวาคม 2569 ถึง 20 มกราคม 2570','31 กุมภาพันธ์ 2570']) {
     assert.equal(parseTtmListing(card.replace('วันเสาร์ที่ 19 และ วันอาทิตย์ที่ 20 ธันวาคม 2569',value),page).length,0);
   }
   assert.equal(parseTtmListing(card.replace('/concert/fixture-live.html','https://outside.example/concert/fixture-live.html'),page).length,0);
   assert.equal(parseTtmListing(card.replace('อิมแพ็ค อารีน่า เมืองทองธานี','RERUN by TTM LIVE'),page).length,0);
   const single = parseTtmListing(card.replace('วันเสาร์ที่ 19 และ วันอาทิตย์ที่ 20 ธันวาคม 2569','30 ต.ค. 2569'),page);
   assert.equal(single[0].startsAt,'2026-10-29T17:00:00.000Z');
+});
+
+test('TTM cards retain real poster artwork and label dates without claiming showtimes',() => {
+  const page = 'https://www.thaiticketmajor.com/concert/';
+  const wrapper = (image: string) => '<div class="event-item"><a class="box-img"><img src="'+image+'"></a>'+card+'</div>';
+  const result = parseTtmListing(wrapper('/img_poster/prefix_1/0001/actual-poster.jpg'),page);
+  assert.equal(result[0].image,'https://www.thaiticketmajor.com/img_poster/prefix_1/0001/actual-poster.jpg');
+  assert.match(result[0].performanceLabel!,/ยังไม่ยืนยันเวลา/);
+  for (const image of ['https://outside.example/img_poster/evil.jpg','/img/placeholder.jpg','javascript:alert(1)']) assert.equal(parseTtmListing(wrapper(image),page)[0].image,null);
 });
 
 test('New sitemap entries are checked promptly even when known upcoming events fill the priority budget',() => {

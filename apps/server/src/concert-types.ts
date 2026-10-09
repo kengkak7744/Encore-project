@@ -1,6 +1,7 @@
 export type ConcertEvent = {
   title: string; url: string; startsAt: string | null; endsAt?: string | null; timeTba?: boolean;
   venue?: string | null; city?: string | null; country?: string; description?: string | null;
+  venueLocation?: {address?: string|null;latitude?: number|string|null;longitude?: number|string|null;placeId?: string|null}|null;
   image?: string | null; priceMin?: number | null; priceMax?: number | null; priceNote?: string | null;
   currency?: string; status?: string; artist?: string | null; completeSchedule?: boolean; performanceLabel?: string | null;
   ticketmasterAttractionId?: string; artistEvidenceUrl?: string;
@@ -12,6 +13,7 @@ export type DiscoveryMetrics = {
   fetchFailures: number; filteredPast: number; pending: number; limited: boolean;
   discovery: string; warnings: string[]; rejectedDates?: number;
   catalogUrls?: string[]; catalogComplete?: boolean; pages?: CatalogPage[]; listingFallback?: number;
+  accessChallenges?: number; deferredListingFallback?: number;
 };
 export type CatalogPage = { url: string; outcome: 'parsed' | 'empty' | 'failed'; sessions: number; error?: string; listingFallback?: boolean };
 export type DiscoveryResult = { events: ConcertEvent[]; metrics: DiscoveryMetrics };

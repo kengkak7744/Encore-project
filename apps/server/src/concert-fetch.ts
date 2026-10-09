@@ -2,6 +2,9 @@ import { robotsAllows } from './ingest.js';
 
 const robotsCache = new Map<string, { text: string; expires: number }>();
 const agent = 'ArtistTrackerResearch/0.1 (+public event metadata; contact admin)';
+export class ConcertAccessChallengeError extends Error {
+  constructor() {super('Access verification page; no bypass attempted');}
+}
 export class ConcertFetchError extends Error {
   readonly retryMs: number;
   constructor(readonly status: number, retryAfter: string | null = null) {
@@ -35,6 +38,6 @@ export async function fetchConcertResource(url: string, host: string, kind: 'htm
   if (!type.includes(kind)) throw Error('Unexpected content type for ' + kind);
   const body = await response.text();
   if (body.length > 3_000_000) throw Error('Oversize source response');
-  if (kind === 'html' && accessChallenge(body)) throw Error('Access verification page; no bypass attempted');
+  if (kind === 'html' && accessChallenge(body)) throw new ConcertAccessChallengeError();
   return body;
 }

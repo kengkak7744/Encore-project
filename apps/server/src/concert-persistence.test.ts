@@ -17,6 +17,16 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
     for (const file of (await readdir(dir)).filter(name => name.endsWith('.sql')).sort()) await client.query(await readFile(new URL(file,dir),'utf8'));
     t.mock.method(pool,'query',(sql: string,params: unknown[]) => client.query(sql,params));
     const base: ConcertEvent = { title: 'Fixture Live',url: 'https://www.theconcert.com/p/123',venue: 'Hall A',country: 'TH',startsAt: '2030-12-25T09:00:00Z',endsAt: '2030-12-25T16:00:00Z',priceMin: 350,priceMax: 350,completeSchedule: true,image: 'https://example.com/actual-poster.jpg' };
+    await t.test('Venue source data survives missing detail but clears after a move; admin precedence is preserved',async()=>{
+      const input={...base,url:'https://www.ticketmelon.com/fixture/location',title:'Location concert',venue:'Location Hall',venueLocation:{address:'99 Rama 1 Road, Bangkok',latitude:13.75,longitude:100.5}};
+      await saveEvent('Ticketmelon',input);const row=(await client.query("SELECT * FROM concerts WHERE title='Location concert'")).rows[0];assert.equal(row.venue_location.address,input.venueLocation.address);
+      await saveEvent('Ticketmelon',{...input,venueLocation:null});assert.equal((await client.query('SELECT venue_location FROM concerts WHERE id=$1',[row.id])).rows[0].venue_location.address,input.venueLocation.address);
+      await saveEvent('Ticketmelon',{...input,venue:'Moved Hall',venueLocation:null});assert.equal((await client.query('SELECT venue_location FROM concerts WHERE id=$1',[row.id])).rows[0].venue_location,null);
+      await client.query('UPDATE concerts SET manual_override=true WHERE id=$1',[row.id]);await saveEvent('Ticketmelon',input);assert.equal((await client.query('SELECT venue_location FROM concerts WHERE id=$1',[row.id])).rows[0].venue_location,null);
+      await client.query('UPDATE concerts SET venue_location=$2 WHERE id=$1',[row.id,JSON.stringify({address:'Old address',latitude:13.75,longitude:100.5})]);
+      await client.query("UPDATE concerts SET venue='Admin moved venue' WHERE id=$1",[row.id]);assert.equal((await client.query('SELECT venue_location FROM concerts WHERE id=$1',[row.id])).rows[0].venue_location,null,'Admin moves must clear the prior map point');
+      await client.query('DELETE FROM concerts WHERE id=$1',[row.id]);
+    });
     await saveSourceEvents('The Concert',[base,{ ...base,startsAt: '2030-12-26T09:00:00Z',endsAt: '2030-12-26T16:00:00Z',priceMin: 590,priceMax: 590 }]);
     let concert = (await client.query('SELECT * FROM concerts')).rows[0];
     assert.equal(concert.image_url,base.image); assert.equal(concert.image_source_url,base.url); assert.ok(concert.image_checked_at);
@@ -65,6 +75,38 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
       await saveSourceEvents('ThaiTicketMajor',[{ ...base,title: 'Organizer Live',url: 'https://www.thaiticketmajor.com/concert/organizer-card.html',venue: 'Hall C',listingOnly: true,timeTba: true,priceMin: null,priceMax: null }]);
       const organizerAfter = (await client.query('SELECT * FROM concerts WHERE id=$1',[organizerBefore.id])).rows[0];
       assert.deepEqual(organizerAfter,organizerBefore,'A new listing source must not overwrite existing organizer details');
+    });
+    await t.test('Organizer input cannot persist an end before its own precise start',async () => {
+      const event = { ...base,title: 'Invalid end fixture',url: 'https://www.livenationtero.co.th/invalid-end',venue: 'Hall Z',endsAt: '2030-12-24T17:00:00Z' };
+      await saveSourceEvents('Live Nation Tero',[event]);
+      const stored = (await client.query("SELECT * FROM concerts WHERE title='Invalid end fixture'")).rows[0];
+      assert.equal(stored.ends_at,null);
+      const rounds = (await client.query('SELECT ends_at FROM concert_performances WHERE concert_id=$1',[stored.id])).rows;
+      assert.ok(rounds.every(row => row.ends_at===null));
+    });
+    await t.test('Additional listing dates supplement inaccessible details without replacing precise rounds or price verification',async () => {
+      const url = 'https://www.thaiticketmajor.com/concert/extra-date-fixture.html';
+      const full = { ...base,url,title: 'Additional date fixture',venue: 'Hall N',completeSchedule: false };
+      await saveSourceEvents('ThaiTicketMajor',[full]);
+      const before = (await client.query('SELECT c.*,s.fetched_at FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1',[url])).rows[0];
+      const listing = { ...full,title: 'Listing title',timeTba: true,listingOnly: true,completeSchedule: false,priceMin: null,priceMax: null,endsAt: null };
+      await saveSourceEvents('ThaiTicketMajor',[{ ...listing,startsAt: '2030-12-24T17:00:00Z' },{ ...listing,startsAt: '2030-12-25T17:00:00Z' }]);
+      const after = (await client.query('SELECT c.*,s.fetched_at FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1',[url])).rows[0];
+      assert.deepEqual(after,before,'A calendar supplement must not re-verify or overwrite full concert facts');
+      const rounds = (await client.query('SELECT * FROM concert_performances WHERE concert_id=$1 ORDER BY starts_at',[before.id])).rows;
+      assert.equal(rounds.length,2);assert.equal(rounds[0].time_tba,false);assert.equal(rounds[1].time_tba,true);
+      assert.equal(rounds[1].ends_at,null);assert.match(rounds[1].performance_label,/ยังไม่ยืนยันเวลา/);
+      await saveSourceEvents('ThaiTicketMajor',[{ ...listing,startsAt: '2030-12-23T17:00:00Z' }]);
+      const earlier = (await client.query('SELECT * FROM concerts WHERE id=$1',[before.id])).rows[0];
+      assert.equal(earlier.starts_at.toISOString(),'2030-12-23T17:00:00.000Z');assert.equal(earlier.time_tba,true);
+      assert.equal(Number(earlier.price_min),350);assert.equal(earlier.last_verified_at,null);
+      assert.equal((await client.query('SELECT time_tba FROM concert_performances WHERE concert_id=$1 AND starts_at=$2',[before.id,full.startsAt])).rows[0].time_tba,false);
+      await client.query("UPDATE concerts SET venue='Live Streaming by TTM LIVE' WHERE id=$1",[before.id]);
+      await saveSourceEvents('ThaiTicketMajor',[listing]);
+      assert.equal((await client.query('SELECT venue FROM concerts WHERE id=$1',[before.id])).rows[0].venue,'Hall N');
+      await client.query("UPDATE concerts SET status='cancelled' WHERE id=$1",[before.id]);
+      await saveSourceEvents('ThaiTicketMajor',[{ ...listing,startsAt: '2030-12-26T17:00:00Z' }]);
+      assert.equal((await client.query('SELECT count(*)::int n FROM concert_performances WHERE concert_id=$1',[before.id])).rows[0].n,3);
     });
     const user = (await client.query("INSERT INTO users(email,password_hash,display_name) VALUES('archive-fixture@example.com','fixture','Fixture') RETURNING id")).rows[0].id;
     for (const kind of ['invalid','manual','attended','mixed']) {

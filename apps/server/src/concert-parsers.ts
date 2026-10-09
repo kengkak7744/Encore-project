@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import type { ConcertEvent } from './concert-types.js';
+import { mapCoordinates } from './concert-location.js';
 
 const object = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -44,7 +45,7 @@ export function parseEventpopDetail(markup: string, page: string): ConcertEvent[
   if (location && !/(?:thailand|ประเทศไทย|ไทย)\s*$/i.test(location)) return [];
   const venue = $('a[href*="google.com/maps"] strong').first().text().trim() || location.split(',')[0]?.trim() || null;
   const city = location.split(',').length > 1 ? location.split(',').at(-2)?.trim() || null : null;
-  const base: ConcertEvent = { title, url, startsAt: null, venue, city, country: 'TH', currency: 'THB', image: eventpopPoster(markup,page), status: /cancelled|canceled|ยกเลิก/i.test(title) ? 'cancelled' : /postponed|เลื่อน/i.test(title) ? 'postponed' : 'scheduled', priceMin: null, priceMax: null };
+  const base: ConcertEvent = { title, url, startsAt: null, venue,venueLocation:{address:location || null,...mapCoordinates($('a[href*="google.com/maps"]').first().attr('href'))}, city, country: 'TH', currency: 'THB', image: eventpopPoster(markup,page), status: /cancelled|canceled|ยกเลิก/i.test(title) ? 'cancelled' : /postponed|เลื่อน/i.test(title) ? 'postponed' : 'scheduled', priceMin: null, priceMax: null };
   const parseDate = (value: string) => {
     const match = value.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})(?:\s+(?:at\s+)?(\d{1,2}:\d{2}))?/);
     if (!match) return null;
@@ -126,7 +127,7 @@ export function parseTheConcertApi(value: unknown, roundValue?: unknown): Concer
     const values = prices.status === true ? [price(prices.min), price(prices.max)].filter((item): item is number => item !== null) : [];
     const images = Array.isArray(data.images) ? data.images : [];
     const description = text(data.description) ? cheerio.load(data.description).text() : '';
-    events.push({ title: data.name, url: 'https://www.theconcert.com/p/' + data.id, startsAt, endsAt, timeTba: false, completeSchedule: true, performanceLabel: row !== data ? text(row.name) : null, venue: text(venue.name), city: text(object(venue.province).name), country: 'TH', currency: 'THB',
+    events.push({ title: data.name, url: 'https://www.theconcert.com/p/' + data.id, startsAt, endsAt, timeTba: false, completeSchedule: true, performanceLabel: row !== data ? text(row.name) : null, venue: text(venue.name),venueLocation:{address:text(venue.address)||text(venue.formatted_address),latitude:venue.latitude ?? venue.lat,longitude:venue.longitude ?? venue.long ?? venue.lng}, city: text(object(venue.province).name), country: 'TH', currency: 'THB',
       priceMin: values.length ? Math.min(...values) : null, priceMax: values.length ? Math.max(...values) : null,
       priceNote: /โต๊ะ|table|แพ็กเกจ|package/i.test(description) ? 'ราคาต้นทางอาจเป็นโต๊ะหรือแพ็กเกจ ไม่ยืนยันเป็นราคาต่อคน ตรวจประเภทบัตรที่ต้นทาง' : null,
       image: image(images.find(item => object(item).tag === 'logo')?.url || images[0]?.url, 'https://www.theconcert.com'),

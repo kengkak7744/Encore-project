@@ -17,9 +17,10 @@ test('News scheduler survives repeated worker boots and preserves a recent pre-d
     await client.query('SET LOCAL search_path TO social_scheduler_fixture,public');
     const dir = new URL('../sql/',import.meta.url);
     const files = (await readdir(dir)).filter(name => name.endsWith('.sql')).sort();
-    for (const file of files.filter(name => !name.startsWith('015_'))) await client.query(await readFile(new URL(file,dir),'utf8'));
+    for (const file of files.filter(name => name<'015_')) await client.query(await readFile(new URL(file,dir),'utf8'));
     await client.query("INSERT INTO sync_runs(source_name,category,status,finished_at,error) VALUES('INSTAGRAM','news','failed',now(),'Instagram Graph HTTP 403 (codes 4)')");
     await client.query(await readFile(new URL(files.find(name => name.startsWith('015_'))!,dir),'utf8'));
+    for (const file of files.filter(name => name>'015_instagram_usage.sql')) await client.query(await readFile(new URL(file,dir),'utf8'));
     t.mock.method(pool,'query',(sql: string,params: unknown[]) => client.query(sql,params));
     t.mock.method(pool,'connect',async () => ({ query: client.query.bind(client),release() {} }));
     t.mock.method(console,'error',() => {});

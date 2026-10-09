@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { matchTicketmasterAttraction, parseEventpop, parseEventpopMeta, parseEvents, parseLiveNation, parseTheConcert, parseTheConcertHighlightIds, parseTicketmaster, parseTicketmelon, robotsAllows } from './ingest.js';
 
+test('A date-only end before a precise show start is unknown, not an impossible event interval',() => {
+  const data = { '@type': 'MusicEvent',name: 'Source interval fixture',startDate: '2026-11-07T18:00:00+07:00',endDate: '2026-11-07' };
+  const result = parseEvents('<script type="application/ld+json">'+JSON.stringify(data)+'</script>','https://example.com/event');
+  assert.equal(result[0].endsAt,null);
+});
+
+test('TTM physical concert metadata is not replaced by a duplicate livestream or rerun event',() => {
+  const physical = { '@type': 'MusicEvent',name: 'Physical concert',startDate: '2026-11-14T17:00:00+07:00',location: { name: 'IMPACT Arena' } };
+  const online = { ...physical,endDate: '2026-12-04',eventAttendanceMode: 'https://schema.org/OnlineEventAttendanceMode',location: { '@type': 'VirtualLocation',name: 'Live Streaming by TTM LIVE' } };
+  const body = '<script type="application/ld+json">'+JSON.stringify([physical,online])+'</script>';
+  const result = parseEvents(body,'https://www.thaiticketmajor.com/concert/physical-fixture.html');
+  assert.equal(result.length,1);assert.equal(result[0].venue,'IMPACT Arena');assert.equal(result[0].endsAt,null);
+});
+
 test('Ticketmelon robots wildcard permits home but blocks search and query URLs', () => {
   const rules = 'User-agent: *\nAllow: /\nDisallow: /search\nDisallow: /*?*\n';
   assert.equal(robotsAllows(rules, '/'), true);

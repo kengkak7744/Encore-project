@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { query, one } from './db.js';
 import { config } from './config.js';
-import { fetchConcertResource } from './concert-fetch.js';
+import { fetchConcertResource, ConcertAccessChallengeError } from './concert-fetch.js';
 import { recordConcertBackoff } from './concert-backoff.js';
 import { eventpopUrl, parseEventpopDetail, parseTheConcertApi, theConcertListing } from './concert-parsers.js';
 import { parseEvents, parseEventpopMeta, parseLiveNation, parseTicketmelon } from './ingest.js';
@@ -96,6 +96,8 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
   const urls = new Set<string>();
   let nextOffset: number | undefined;
   let eventpopOffset = 0;
+  let ttmOffset = 0;
+  let ttmChallenges = 0;
   const listingEvents = new Map<string,ConcertEvent[]>();
   if (source.name === 'Ticketmelon') {
     const sitemap = async (url: string) => {
@@ -141,13 +143,14 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
     }
     counters.discovered = urls.size;
     counters.catalogUrls = [...urls];
-    if (source.name === 'Eventpop' && urls.size) {
-      const cursor = await one<{ cursor_offset: number }>("SELECT cursor_offset FROM concert_discovery_cursors WHERE source_name='Eventpop'");
-      eventpopOffset = options.sweep ? 0 : (cursor?.cursor_offset || 0) % urls.size;
+    if (['Eventpop','ThaiTicketMajor'].includes(source.name) && urls.size) {
+      const cursor = await one<{ cursor_offset: number }>('SELECT cursor_offset FROM concert_discovery_cursors WHERE source_name=$1',[source.name]);
+      const offset = options.sweep ? 0 : (cursor?.cursor_offset || 0) % urls.size;
+      if(source.name==='Eventpop')eventpopOffset=offset;else ttmOffset=offset;
       const ordered = [...urls].sort();
       urls.clear();
-      [...ordered.slice(eventpopOffset),...ordered.slice(0,eventpopOffset)].forEach(url => urls.add(url));
-      nextOffset = (eventpopOffset + Math.min(limit,urls.size)) % urls.size;
+      [...ordered.slice(offset),...ordered.slice(0,offset)].forEach(url => urls.add(url));
+      nextOffset = (offset + Math.min(limit,urls.size)) % urls.size;
     }
   }
   counters.pending = Math.max(0, counters.discovered - Math.min(urls.size, limit));
@@ -156,6 +159,7 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
     counters.attempted++;
     try {
       const markup = await fetchConcertResource(url, source.host, 'html');
+      ttmChallenges = 0;
       let parsed: ConcertEvent[];
       if (source.name === 'Ticketmelon') parsed = parseTicketmelon(markup, url);
       else if (source.name === 'Eventpop') { parsed = parseEventpopDetail(markup, url); if (!parsed.length) parsed = parseEventpopMeta(markup, url); }
@@ -175,12 +179,29 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
         counters.pages!.at(-1)!.listingFallback = true;
       }
       if (counters.warnings.length < 10) counters.warnings.push(new URL(url).pathname + ': ' + (error instanceof Error ? error.message : 'Unreadable detail'));
+      if(source.name==='ThaiTicketMajor'&&error instanceof ConcertAccessChallengeError) {
+        counters.accessChallenges=(counters.accessChallenges || 0)+1;
+        if(++ttmChallenges>=3) {
+          counters.warnings.push('Detail checks stopped after three consecutive access challenges; remaining public cards retained without detail verification');
+          break;
+        }
+      } else ttmChallenges=0;
       if (await recordConcertBackoff(source.name,error)) {
         nextOffset = source.name === 'Eventpop' ? (eventpopOffset + counters.attempted - 1) % urls.size : undefined;
         break;
       }
     }
-    await pause(source.name === 'Eventpop' ? 2000 : 400);
+    await pause(['Eventpop','ThaiTicketMajor'].includes(source.name) ? 2000 : 400);
+  }
+  if(source.name==='ThaiTicketMajor') {
+    // Rotate beyond blocked details next hour. Unrequested URLs stay pending in
+    // the report; a readable listing must never masquerade as a checked detail.
+    nextOffset=urls.size?(ttmOffset+counters.attempted)%urls.size:undefined;
+    for(const url of [...urls].slice(counters.attempted))if(listingEvents.has(url)) {
+      events.push(...listingEvents.get(url)!);
+      counters.listingFallback=(counters.listingFallback || 0)+1;
+      counters.deferredListingFallback=(counters.deferredListingFallback || 0)+1;
+    }
   }
   counters.pending = Math.max(0,counters.discovered - counters.attempted);
   counters.limited ||= counters.pending > 0;

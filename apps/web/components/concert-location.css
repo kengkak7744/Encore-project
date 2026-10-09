@@ -1,0 +1,16 @@
+.location-panel{border:1px solid var(--line);background:#fff;border-radius:18px;padding:24px;margin:24px 0;min-width:0}
+.location-panel h2{font-size:21px;margin:0 0 10px}.location-panel h3{font-size:16px;margin:24px 0 10px}
+.location-panel iframe{width:100%;height:320px;border:0;border-radius:12px;margin-top:16px}
+.location-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.location-actions .button,.location-details>.button{font-size:12px;padding:11px 14px}
+.location-details>summary{font-weight:700;color:var(--forest);cursor:pointer;font-size:14px;margin:18px 0}
+.place-input{margin:16px 0;min-width:0}.place-input label,.location-route-options label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
+.place-input input,.location-route-options input,.location-route-options select{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;background:white;font:inherit;min-width:0}
+.place-input small{display:block;margin-top:6px}.place-choices{display:grid;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:6px}
+.place-choices button{background:white;text-align:left;padding:12px;border:0;border-bottom:1px solid var(--line);font:inherit;font-size:13px;cursor:pointer;overflow-wrap:anywhere}
+.place-choices button:hover,.place-choices button[aria-selected=true]{background:#e9efd9}.place-choices button:last-child{border:0}
+.location-route-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.location-result{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:12px;background:#f4f7ee;font-size:13px;overflow-wrap:anywhere}
+.location-result ul{padding-left:20px}.location-result li{margin:12px 0}.location-result small{display:block;color:var(--muted)}.location-result a{color:var(--forest);font-weight:700}
+@media(max-width:650px){.location-panel{padding:18px}.location-route-options{grid-template-columns:1fr}.location-panel iframe{height:260px}}
+
+.maps-attribution{font-family:Arial,sans-serif;font-style:normal;font-weight:400;font-size:12px;letter-spacing:normal;white-space:nowrap;color:#5e5e5e}

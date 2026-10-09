@@ -12,7 +12,9 @@ import { artistMembershipEvidence } from './artist-membership-evidence.js';
 test('Popularity evidence distinguishes historical, measured, pending and group observations', () => {
   assert.deepEqual(reviewedArtistPopularity.map(row => row.slug).sort(), curatedArtistProfiles.map(profile => profile.slug).sort());
   assert.deepEqual(reviewedArtistMembership.map(row => row.slug).sort(), curatedArtistProfiles.map(profile => profile.slug).sort());
-  assert.deepEqual(reviewedArtistImages.map(row => row.slug).sort(), curatedArtistProfiles.map(profile => profile.slug).sort());
+  const curatedSlugs=new Set(curatedArtistProfiles.map(profile=>profile.slug));
+  assert.deepEqual(reviewedArtistImages.filter(row=>curatedSlugs.has(row.slug)).map(row => row.slug).sort(), [...curatedSlugs].sort());
+  assert.equal(new Set(reviewedArtistImages.map(row=>row.slug)).size,reviewedArtistImages.length,'Image reviews must retain one identity per profile after expansion');
   for (const evidence of reviewedArtistPopularity) {
     assert.equal(new URL(evidence.sourceUrl).protocol, 'https:');
     if (evidence.status === 'verified-snapshot') assert.ok('measuredAt' in evidence && evidence.measuredAt && Number.isSafeInteger(evidence.value));
@@ -73,7 +75,8 @@ test('Audit repairs are repeatable, preserve editor changes and pair image licen
     assert.ok((await artist('phum-viphurit')).membership_evidence.claims.some((claim: { text: string }) => claim.text.includes('ศิลปินอิสระ')));
     assert.equal((await artist('atlas')).image_url, '/artist-images/atlas-interview-2022.png');
     assert.match((await artist('atlas')).image_review.caption, /ไม่ใช่หลักฐานรายชื่อสมาชิกปัจจุบัน/);
-    assert.equal(Number((await client.query('SELECT count(*) AS total FROM artist_image_credits')).rows[0].total), reviewedArtistImages.filter(row => row.status === 'verified-license' && row.slug !== 'pp-krit').length);
+    const seededSlugs=new Set((await client.query('SELECT slug FROM artists')).rows.map(row=>row.slug));
+    assert.equal(Number((await client.query('SELECT count(*) AS total FROM artist_image_credits')).rows[0].total), reviewedArtistImages.filter(row => row.status === 'verified-license' && row.slug !== 'pp-krit' && seededSlugs.has(row.slug)).length);
     assert.equal(Number((await client.query('SELECT count(*) AS total FROM artists WHERE popularity_rank IS NOT NULL')).rows[0].total), 0);
     assert.ok((await artist('mind-4eve')).popularity_evidence.value > 0);
     assert.match((await artist('mind-4eve')).popularity_evidence.work, /ของสำคัญ/);

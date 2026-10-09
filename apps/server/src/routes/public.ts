@@ -140,8 +140,11 @@ publicRoutes.get('/status', async (_req, res) => {
     (SELECT count(*)::integer FROM artists a WHERE NOT a.biography_manual_override AND NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)) AS pending,
     (SELECT count(*)::integer FROM biography_runs WHERE status='published') AS published`);
   const biographyRuns = await query('SELECT a.name AS artist_name,a.slug AS artist_slug,r.status,r.started_at,r.finished_at FROM biography_runs r JOIN artists a ON a.id=r.artist_id ORDER BY r.started_at DESC LIMIT 5');
-  const instagram = await one(`SELECT b.last_request_at,b.next_request_at,b.paused_until,b.pause_reason,b.usage,b.usage_checked_at,
+  const instagram = await one(`SELECT b.last_request_at,b.next_request_at,b.paused_until,b.pause_reason,b.usage,b.usage_checked_at,b.spacing_seconds AS request_spacing_seconds,
     COALESCE(b.paused_until>now(),false) AS paused,
+    (SELECT count(*)::int FROM instagram_media_jobs j JOIN social_accounts s ON s.id=j.account_id WHERE s.verified_at IS NOT NULL AND j.needs_text) AS pending_text_accounts,
+    (SELECT count(*)::int FROM instagram_media_jobs j JOIN social_accounts s ON s.id=j.account_id WHERE s.verified_at IS NOT NULL AND NOT j.needs_text) AS pending_media_accounts,
+    (SELECT count(*)::int FROM social_accounts WHERE platform='instagram' AND verified_at IS NOT NULL AND instagram_failures>0 AND next_sync_at>now()) AS backoff_accounts,
     (SELECT count(*)::int FROM social_accounts WHERE platform='instagram' AND verified_at IS NOT NULL) AS accounts,
     (SELECT count(*)::int FROM social_accounts WHERE platform='instagram' AND verified_at IS NOT NULL AND (next_sync_at IS NULL OR next_sync_at<=now())) AS pending_accounts,
     (SELECT count(*)::int FROM social_accounts WHERE platform='instagram' AND verified_at IS NOT NULL AND last_success_at>=now()-$1::integer*interval '1 minute') AS fresh_accounts

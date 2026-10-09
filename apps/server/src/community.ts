@@ -89,7 +89,7 @@ export async function saveCommunityPost(userId: string, input: Record<string,unk
 }
 
 // Artist news and fan posts remain separate kinds; user text never enters the sourced AI knowledge index.
-const feedCte = `WITH interest_artists AS (
+const feedInterests = `WITH interest_artists AS (
   SELECT artist_id,bool_or(engaged) AS engaged FROM (
     SELECT artist_id,false AS engaged FROM follows WHERE user_id=$1
     UNION ALL
@@ -103,7 +103,8 @@ const feedCte = `WITH interest_artists AS (
 ),related_artists AS (
   SELECT m.member_id AS artist_id FROM artist_memberships m JOIN interest_artists i ON i.artist_id=m.band_id
   UNION SELECT m.band_id FROM artist_memberships m JOIN interest_artists i ON i.artist_id=m.member_id
-),entries AS (
+) `;
+const feedCte = (restricted = false) => feedInterests + `,entries AS (
   SELECT n.id,'news'::text AS kind,COALESCE(n.published_at,n.fetched_at) AS published_at,
     CASE WHEN EXISTS(SELECT 1 FROM follows WHERE user_id=$1 AND artist_id=n.artist_id) THEN 3
       WHEN EXISTS(SELECT 1 FROM follows f JOIN artists fa ON fa.id=f.artist_id WHERE f.user_id=$1 AND fa.genres && a.genres) THEN 1 ELSE 0 END AS score,
@@ -120,7 +121,7 @@ const feedCte = `WITH interest_artists AS (
     false AS own,false AS shared,0 AS engagement,
     ARRAY(SELECT DISTINCT m.band_id::text FROM artist_memberships m WHERE m.band_id=n.artist_id OR m.member_id=n.artist_id) AS family_ids,
     CASE WHEN char_length(n.body)>=80 THEN md5(regexp_replace(lower(trim(n.body)),'[[:space:]]+',' ','g')) ELSE NULL END AS content_key
-  FROM news_items n JOIN artists a ON a.id=n.artist_id WHERE NOT n.hidden
+  FROM news_items n JOIN artists a ON a.id=n.artist_id WHERE NOT n.hidden${restricted?' AND n.id=ANY($3::uuid[])':''}
   UNION ALL
   SELECT p.id,'post',p.created_at,
     CASE WHEN p.user_id=$1 THEN 4
@@ -147,32 +148,55 @@ const feedCte = `WITH interest_artists AS (
       +(SELECT count(DISTINCT cc.user_id) FROM community_comments cc WHERE cc.post_id=p.id AND NOT cc.hidden AND cc.user_id<>p.user_id))::int,
     ARRAY(SELECT DISTINCT m.band_id::text FROM community_post_artists pa JOIN artist_memberships m ON m.band_id=pa.artist_id OR m.member_id=pa.artist_id WHERE pa.post_id=p.id),
     CASE WHEN char_length(p.body)>=80 THEN md5(regexp_replace(lower(trim(p.body)),'[[:space:]]+',' ','g')) ELSE NULL END
-  FROM community_posts p JOIN users u ON u.id=p.user_id WHERE NOT p.hidden
+  FROM community_posts p JOIN users u ON u.id=p.user_id WHERE NOT p.hidden${restricted?' AND p.id=ANY($4::uuid[])':''}
 ) `;
 
 const feedSnapshots = new FeedSnapshots();
 export async function getCommunityFeed(userId: string | null, tab: string, requestedPage: number, token?: string) {
   if (tab==='for-you') {
-    const candidates = await query<FeedCandidate>(feedCte + `SELECT kind||':'||id::text AS key,kind,published_at,artist_ids,genres,author_key,
-      followed,engaged,related,genre_match,own,shared,engagement,family_ids,content_key FROM entries`,[userId,config.socialStaleAfterMinutes]);
-    const cached = feedSnapshots.get(token,userId);
-    const snapshot = cached || feedSnapshots.create(userId,rankForYou(candidates));
-    const snapshotReset = !!token && !cached;
-    const visible = new Set(candidates.map(c => c.key));
-    const order = snapshot.entries.filter(entry => visible.has(entry.key));
-    const total = order.length,page = snapshotReset ? 1 : Math.min(requestedPage,Math.max(1,Math.ceil(total/15)));
-    const slice = order.slice((page-1)*15,page*15),reasons = new Map(slice.map(entry => [entry.key,entry.reason]));
-    const rows = await query<{ key: string; item: Record<string,unknown> }>(feedCte + `SELECT kind||':'||id::text AS key,item||jsonb_build_object('followed',followed) AS item
-      FROM entries WHERE kind||':'||id::text=ANY($3::text[])`,[userId,config.socialStaleAfterMinutes,slice.map(entry => entry.key)]);
-    const items = new Map(rows.map(row => [row.key,{ ...row.item,reason: reasons.get(row.key) }]));
-    return { items: slice.flatMap(entry => items.has(entry.key) ? [items.get(entry.key)!] : []),total,page,pageSize: 15,tab,
-      personalized: !!userId,snapshot: snapshot.token,snapshotReset };
+    const cached=feedSnapshots.get(token,userId);
+    let snapshot=cached;
+    if(!snapshot){
+      // Keep inexpensive identifiers for complete, stable archive pagination.
+      // Only a bounded, diverse shortlist gets interest joins and reranking.
+      const catalog=await query<{key:string}>(`SELECT kind||':'||id::text AS key FROM (
+        SELECT 'news' AS kind,id,COALESCE(published_at,fetched_at) AS published_at FROM news_items WHERE NOT hidden
+        UNION ALL SELECT 'post',id,created_at FROM community_posts WHERE NOT hidden
+      ) c ORDER BY published_at DESC,id DESC`);
+      const picks=await query<{id:string;kind:string}>(feedInterests+`,picks AS (
+        (SELECT id,'news' AS kind FROM (SELECT id,COALESCE(published_at,fetched_at) AS published_at,
+          row_number() OVER(PARTITION BY artist_id ORDER BY COALESCE(published_at,fetched_at) DESC,id DESC) AS position
+          FROM news_items WHERE NOT hidden) n WHERE position<=6 ORDER BY published_at DESC,id DESC LIMIT 240)
+        UNION ALL (SELECT id,'post' FROM community_posts WHERE NOT hidden ORDER BY created_at DESC,id DESC LIMIT 90)
+        UNION ALL (SELECT n.id,'news' FROM news_items n WHERE NOT n.hidden AND EXISTS(
+          SELECT 1 FROM interest_artists i WHERE i.artist_id=n.artist_id)
+          ORDER BY COALESCE(n.published_at,n.fetched_at) DESC,n.id DESC LIMIT 120)
+        UNION ALL (SELECT p.id,'post' FROM community_posts p WHERE NOT p.hidden AND (p.user_id=$1 OR EXISTS(
+          SELECT 1 FROM community_post_artists pa JOIN interest_artists i ON i.artist_id=pa.artist_id WHERE pa.post_id=p.id)
+          OR EXISTS(SELECT 1 FROM follows mine JOIN follows theirs ON theirs.artist_id=mine.artist_id WHERE mine.user_id=$1 AND theirs.user_id=p.user_id))
+          ORDER BY p.created_at DESC,p.id DESC LIMIT 90)
+      ) SELECT DISTINCT id,kind FROM picks`,[userId]);
+      const visible=new Set(catalog.map(c=>c.key));
+      const candidates=await query<FeedCandidate>(feedCte(true)+`SELECT kind||':'||id::text AS key,kind,published_at,artist_ids,genres,author_key,
+        followed,engaged,related,genre_match,own,shared,engagement,family_ids,content_key FROM entries`,
+        [userId,config.socialStaleAfterMinutes,picks.filter(p=>p.kind==='news').map(p=>p.id),picks.filter(p=>p.kind==='post').map(p=>p.id)]);
+      const ranked=rankForYou(candidates.filter(c=>visible.has(c.key))),rankedKeys=new Set(ranked.map(c=>c.key));
+      snapshot=feedSnapshots.create(userId,[...ranked,...catalog.filter(c=>!rankedKeys.has(c.key)).map(c=>({...c,reason:'ข่าวและโพสต์ก่อนหน้า'}))]);
+    }
+    const snapshotReset=!!token&&!cached,total=snapshot.entries.length;
+    const page=snapshotReset?1:Math.min(requestedPage,Math.max(1,Math.ceil(total/15)));
+    const slice=snapshot.entries.slice((page-1)*15,page*15),reasons=new Map(slice.map(entry=>[entry.key,entry.reason]));
+    const rows=await query<{key:string;item:Record<string,unknown>}>(feedCte(true)+`SELECT kind||':'||id::text AS key,item||jsonb_build_object('followed',followed) AS item FROM entries`,
+      [userId,config.socialStaleAfterMinutes,slice.filter(c=>c.key.startsWith('news:')).map(c=>c.key.slice(5)),slice.filter(c=>c.key.startsWith('post:')).map(c=>c.key.slice(5))]);
+    const items=new Map(rows.map(row=>[row.key,{...row.item,reason:reasons.get(row.key)}]));
+    return {items:slice.flatMap(entry=>items.has(entry.key)?[items.get(entry.key)!]:[]),total,page,pageSize:15,tab,
+      personalized:!!userId,snapshot:snapshot.token,snapshotReset};
   }
   const filter = tab==='following' ? 'WHERE followed' : '';
   const args = [userId,config.socialStaleAfterMinutes];
-  const count = await one<{ total: number }>(feedCte + 'SELECT count(*)::int total FROM entries ' + filter,args);
+  const count = await one<{ total: number }>(feedCte() + 'SELECT count(*)::int total FROM entries ' + filter,args);
   const total = count?.total || 0, page = Math.min(requestedPage,Math.max(1,Math.ceil(total/15)));
-  const items = await query<{ item: Record<string,unknown> }>(feedCte + `SELECT item||jsonb_build_object('followed',followed,'reason',
+  const items = await query<{ item: Record<string,unknown> }>(feedCte() + `SELECT item||jsonb_build_object('followed',followed,'reason',
     CASE WHEN followed THEN 'ศิลปินที่คุณติดตาม' WHEN score=4 THEN 'โพสต์ของคุณ' WHEN kind='post' AND score=2 THEN 'แฟนเพลงที่มีความสนใจร่วมกัน' WHEN score=1 THEN 'แนวเพลงที่คุณสนใจ' ELSE 'สำรวจชุมชน' END) AS item
     FROM entries ${filter} ORDER BY ${tab==='following' ? '' : 'score DESC,'} published_at DESC,id DESC LIMIT 15 OFFSET $3`,[...args,(page-1)*15]);
   return { items: items.map(row => row.item),total,page,pageSize: 15,tab,personalized: !!userId };

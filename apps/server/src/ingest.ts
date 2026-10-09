@@ -2,13 +2,16 @@ import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { one, query } from './db.js';
 import { config } from './config.js';
-import { instagramFeedPosts, instagramMedia, newsUpsertSql, newsMetadataUpsertSql } from './social-media.js';
+import { parseTtmRounds, ttmVenueMetadata } from './ttm-detail.js';
+import { instagramFeedPosts, instagramMedia, newsUpsertSql, newsMetadataUpsertSql, newsIdentityUpsertSql } from './social-media.js';
 import { withInstagramBudget, type InstagramBudget } from './instagram-budget.js';
+import { instagramMediaAllowed, instagramRetryMinutes } from './instagram-policy.js';
 
 import type { ConcertEvent as Event, DiscoveryMetrics } from './concert-types.js';
 import { eventpopUrl, eventpopPoster, parseEventpopDetail } from './concert-parsers.js';
 import { discoverConcertSource } from './concert-discovery.js';
 import { recordConcertBackoff } from './concert-backoff.js';
+import { deliveryVenue,sourceLocation } from './concert-location.js';
 type TicketmasterIdentity = { aliases: string[]; attractionIds: string[]; officialUrls: string[]; evidenceUrls?: Record<string, string> };
 type Source = { name: string; url: string; host: string; linkPattern: RegExp };
 const sources: Source[] = [
@@ -103,6 +106,7 @@ function eventDate(value: string) {
 export function parseEvents(markup: string, pageUrl: string): Event[] {
   const $ = cheerio.load(markup);
   const found: Event[] = [];
+  const ttm = /^https:\/\/(?:[a-z0-9-]+\.)*thaiticketmajor\.com\//i.test(pageUrl);
   $('script[type="application/ld+json"]').each((_index, element) => {
     try {
       for (const item of nodes(JSON.parse($(element).html() || '{}'))) {
@@ -112,15 +116,28 @@ export function parseEvents(markup: string, pageUrl: string): Event[] {
         const start = date ? eventDate(date) : null;
         if (!title || !start) continue;
         const place = item.location && typeof item.location === 'object' ? item.location as Record<string, unknown> : {};
+        if (ttm && (/OnlineEventAttendanceMode/.test(String(item.eventAttendanceMode || '')) ||
+          /VirtualLocation/.test(String(place['@type'] || '')) || /rerun|live\s*stream|ttm\s*live/i.test(str(place.name) || ''))) continue;
         const address = place.address && typeof place.address === 'object' ? place.address as Record<string, unknown> : {};
         const prices = offerSummary(item.offers);
         const performer = Array.isArray(item.performer) ? item.performer[0] : item.performer;
         const artist = performer && typeof performer === 'object' ? str((performer as Record<string, unknown>).name) : str(performer);
-        found.push({ title: decodeTitle(title), url: str(item.url) || pageUrl, startsAt: start.iso, endsAt: str(item.endDate) ? eventDate(str(item.endDate)!)?.iso : null, timeTba: start.timeTba, venue: str(place.name), city: str(address.addressLocality), country: str(address.addressCountry) || 'TH', description: str(item.description), image: imageUrl(Array.isArray(item.image) ? item.image[0] : item.image), ...prices, status: /cancelled/i.test(String(item.eventStatus || '')) ? 'cancelled' : /postponed/i.test(String(item.eventStatus || '')) ? 'postponed' : 'scheduled', artist });
+        const geo=record(place.geo);
+        const venueLocation={address:typeof place.address==='string'?str(place.address):[str(address.streetAddress),str(address.addressLocality),str(address.addressRegion),str(address.postalCode),str(address.addressCountry)].filter(Boolean).join(', ') || null,latitude:geo.latitude as number|string|undefined,longitude:geo.longitude as number|string|undefined};
+        found.push({ title: decodeTitle(title), url: str(item.url) || pageUrl, startsAt: start.iso, endsAt: str(item.endDate) ? eventDate(str(item.endDate)!)?.iso : null, timeTba: start.timeTba, venue: str(place.name),venueLocation, city: str(address.addressLocality), country: str(address.addressCountry) || 'TH', description: str(item.description), image: imageUrl(Array.isArray(item.image) ? item.image[0] : item.image), ...prices, status: /cancelled/i.test(String(item.eventStatus || '')) ? 'cancelled' : /postponed/i.test(String(item.eventStatus || '')) ? 'postponed' : 'scheduled', artist });
       }
     } catch { /* Invalid third-party JSON-LD cannot stop the remaining items. */ }
   });
-  return found;
+  if(ttm) {
+    const details=found.map(ttmVenueMetadata);
+    // The visible round table belongs to this detail page, never to linked cards.
+    if(details.length===1&&new URL(details[0].url).pathname===new URL(pageUrl).pathname) {
+      const rounds=parseTtmRounds(markup,details[0]);
+      if(rounds.length)return rounds.map(validEventEnd);
+    }
+    return details.map(validEventEnd);
+  }
+  return found.map(validEventEnd);
 }
 
 export function parseEventpop(markup: string, pageUrl: string): Event[] {
@@ -174,7 +191,7 @@ export function parseTheConcert(markup: string, pageUrl: string): Event[] {
   const priceText = $('.price').first().text().trim();
   const priceMin = priceText.match(/^฿\s*([\d,]+(?:\.\d{1,2})?)$/) ? money(priceText.replace(/[฿,\s]/g, '')) : null;
   const image = str($('meta[property="og:image"]').attr('content'));
-  return [{ title, url: pageUrl, startsAt, endsAt, venue, country: 'TH', priceMin, currency: 'THB', image: image && validUrl(image) ? image : null }];
+  return [{ title, url: pageUrl, startsAt, endsAt, venue,venueLocation:{latitude:coords[0],longitude:coords[1]}, country: 'TH', priceMin, currency: 'THB', image: image && validUrl(image) ? image : null }];
 }
 
 export function parseTicketmelon(markup: string, pageUrl: string): Event[] {
@@ -193,14 +210,14 @@ export function parseTicketmelon(markup: string, pageUrl: string): Event[] {
   const startsAtMs = Number(event.show_starttime);
   const endsAtMs = Number(event.show_endtime);
   const status = str(event.status)?.toLowerCase();
-  if (!title || /(?:the series|ตอนที่|episode\s*\d)/i.test(title) || !categories.some((item) => typeof item === 'string' && /music|concert|ดนตรี|คอนเสิร์ต/i.test(item)) ||
+  if (!title || deliveryVenue(str(venue.name)) || /(?:the series|ตอนที่|episode\s*\d)/i.test(title) || !categories.some((item) => typeof item === 'string' && /music|concert|ดนตรี|คอนเสิร์ต/i.test(item)) ||
       !/thailand|ประเทศไทย|ไทย/i.test(str(venue.formatted_address) || '') || str(currency.code) !== 'THB' ||
       !Number.isFinite(startsAtMs) || startsAtMs < Date.parse('2020-01-01') ||
       !['publish', 'cancelled', 'canceled', 'postponed'].includes(status || '') || event.is_hide_web === true) return [];
   const artists = Array.isArray(event.artist_tag) ? event.artist_tag : [];
   return [{ title, url: url.origin + url.pathname, startsAt: new Date(startsAtMs).toISOString(),
     endsAt: Number.isFinite(endsAtMs) && endsAtMs > startsAtMs ? new Date(endsAtMs).toISOString() : null,
-    venue: str(venue.name), country: 'TH', image: str(event.img_poster), priceMin: null, priceMax: null, currency: 'THB',
+    venue: str(venue.name),venueLocation:{address:str(venue.formatted_address)||str(venue.address),latitude:venue.latitude as number|string|undefined,longitude:venue.longitude as number|string|undefined,placeId:str(venue.place_id)}, country: 'TH', image: str(event.img_poster), priceMin: null, priceMax: null, currency: 'THB',
     status: status === 'cancelled' || status === 'canceled' ? 'cancelled' : status === 'postponed' ? 'postponed' : 'scheduled',
     artist: str(record(artists[0]).artist) }];
 }
@@ -287,7 +304,7 @@ export function parseTicketmaster(item: unknown, artist?: string, countryFilter?
   const width = (image: Record<string, unknown>) => typeof image.width === 'number' && Number.isFinite(image.width) && image.width > 0 ? image.width : 0;
   images.sort((a, b) => Number(b.ratio === '16_9') - Number(a.ratio === '16_9') || width(b) - width(a));
   const image = images.length ? str(images[0].url) : null;
-  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name), city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), image, priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist, ...(performer ? { ticketmasterAttractionId: performer.id, artistEvidenceUrl: performer.evidenceUrl } : {}) };
+  return { title, url, startsAt, timeTba: start.timeTBA === true || start.noSpecificTime === true || !str(start.localTime) && !explicit, venue: str(venue.name),venueLocation:{address:[str(record(venue.address).line1),str(record(venue.address).line2),str(record(venue.city).name),str(record(venue.state).name),str(venue.postalCode),country].filter(Boolean).join(', ') || null,latitude:record(venue.location).latitude as number|string|undefined,longitude:record(venue.location).longitude as number|string|undefined}, city: str(record(venue.city).name), country, description: str(data.info) || str(data.pleaseNote), image, priceMin: minimums.length ? Math.min(...minimums) : null, priceMax: maximums.length ? Math.max(...maximums) : null, currency: validCurrency ? currency : 'XXX', status, artist, ...(performer ? { ticketmasterAttractionId: performer.id, artistEvidenceUrl: performer.evidenceUrl } : {}) };
 }
 
 export function parseLiveNation(markup: string, pageUrl: string): Event[] {
@@ -315,7 +332,15 @@ function normalized(text: string) { return text.toLowerCase().normalize('NFKC').
 function slug(text: string) { return createHash('sha1').update(text).digest('hex').slice(0, 14); }
 function validUrl(value: string) { try { return new URL(value).protocol === 'https:'; } catch { return false; } }
 
+function validEventEnd(event: Event): Event {
+  if (!event.endsAt) return event;
+  const end = Date.parse(event.endsAt),start = event.startsAt ? Date.parse(event.startsAt) : NaN;
+  return !Number.isFinite(end) || Number.isFinite(start) && end<=start ? { ...event,endsAt: null } : event;
+}
+
 export async function saveEvent(source: string, event: Event) {
+  event = validEventEnd(event);
+  if(deliveryVenue(event.venue))return false;
   if (!validUrl(event.url)) return false;
   const date = event.startsAt ? new Date(event.startsAt) : null;
   if (date && Number.isNaN(date.getTime())) return false;
@@ -338,6 +363,7 @@ export async function saveEvent(source: string, event: Event) {
     concertId = row!.id;
   }
   const role = source === 'Live Nation Tero' ? 'organizer' : 'ticket';
+  const previousVenue=await one<{venue:string|null}>('SELECT venue FROM concerts WHERE id=$1',[concertId]);
   await query('INSERT INTO concert_sources(concert_id,source_name,source_url,source_role,raw_data,fetched_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(source_url) DO UPDATE SET raw_data = EXCLUDED.raw_data, source_role=EXCLUDED.source_role, fetched_at = now(), last_error = null', [concertId, source, event.url, role, JSON.stringify(event)]);
   if (event.listingOnly && await one("SELECT 1 FROM concert_sources WHERE concert_id=$1 AND NOT COALESCE((raw_data->>'listingOnly')::boolean,false)",[concertId])) {
     await query("UPDATE concert_sources SET last_error='Detail unavailable; public listing checked only' WHERE source_url=$1",[event.url]);
@@ -347,6 +373,11 @@ export async function saveEvent(source: string, event: Event) {
   const hasOrganizer = await one('SELECT 1 FROM concert_sources WHERE concert_id = $1 AND source_role = \'organizer\'', [concertId]);
   if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=COALESCE($10,price_min), price_max=COALESCE($11,price_max), image_url=COALESCE($12,image_url), image_source_url=CASE WHEN $12::text IS NOT NULL THEN $14 ELSE image_source_url END, image_checked_at=CASE WHEN $12::text IS NOT NULL THEN now() ELSE image_checked_at END, currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB', event.url]);
   const protectedConcert = await one<{ manual_override: boolean }>('SELECT manual_override FROM concerts WHERE id=$1', [concertId]);
+  if(!event.listingOnly&&!protectedConcert?.manual_override&&(role==='organizer'||!hasOrganizer)){
+    const location=sourceLocation(event.venueLocation,event.url,new Date().toISOString(),event.country || 'TH');
+    // Keep a source location only for the same venue; do not retain coordinates after a move.
+    if(location||event.venue&&event.venue!==previousVenue?.venue)await query('UPDATE concerts SET venue_location=$2::jsonb WHERE id=$1 AND NOT manual_override',[concertId,location?JSON.stringify(location):null]);
+  }
   if (date && !protectedConcert?.manual_override && (role === 'organizer' || !hasOrganizer)) {
     const preciseRound = event.timeTba ? await one("SELECT id FROM concert_performances WHERE concert_id=$1 AND NOT time_tba AND (starts_at AT TIME ZONE 'Asia/Bangkok')::date = ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date", [concertId, date.toISOString()]) : null;
     if (!preciseRound) await query('INSERT INTO concert_performances(concert_id,starts_at,ends_at,time_tba,status,source_url,performance_label) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(concert_id,starts_at) DO UPDATE SET ends_at=COALESCE(EXCLUDED.ends_at,concert_performances.ends_at), time_tba=concert_performances.time_tba AND EXCLUDED.time_tba, status=EXCLUDED.status, source_url=EXCLUDED.source_url, performance_label=COALESCE(EXCLUDED.performance_label,concert_performances.performance_label), is_current=true, updated_at=now()', [concertId, date.toISOString(), event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.url, event.performanceLabel || null]);
@@ -373,7 +404,8 @@ export async function saveEvent(source: string, event: Event) {
 export async function saveSourceEvents(source: string, events: Event[]) {
   let changed = 0;
   const groups = new Map<string, Event[]>();
-  for (const event of events) {
+  for (const candidate of events) {
+    const event = validEventEnd(candidate);
     if (await saveEvent(source, event)) changed++;
     const group = groups.get(event.url) || [];
     group.push(event); groups.set(event.url, group);
@@ -383,8 +415,29 @@ export async function saveSourceEvents(source: string, events: Event[]) {
       EXISTS(SELECT 1 FROM concert_sources d WHERE d.concert_id=c.id AND NOT COALESCE((d.raw_data->>'listingOnly')::boolean,false)) AS full_detail,
       EXISTS(SELECT 1 FROM concert_sources s WHERE s.concert_id=c.id AND s.source_role='organizer') AS organizer
       FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1`, [url]);
-    if (!concert || concert.manual_override || concert.organizer && source !== 'Live Nation Tero') continue;
-    if (rows.some(row => row.listingOnly) && (!concert.listing_only || concert.full_detail)) continue;
+    if (!concert || concert.manual_override) continue;
+    if (rows.some(row => row.listingOnly) && (!concert.listing_only || concert.full_detail)) {
+      // Fresh seller cards can announce additional dates while old details remain inaccessible.
+      // Keep known precise rounds, prices and cancellation; label new calendar dates as unconfirmed times.
+      await query(`UPDATE concert_sources SET raw_data=COALESCE(raw_data,'{}'::jsonb) ||
+        jsonb_build_object('listingDates',$2::jsonb,'listingCheckedAt',now()) WHERE source_url=$1`,[url,JSON.stringify(rows)]);
+      for (const row of rows.filter(row => row.startsAt)) await query(`INSERT INTO concert_performances
+        (concert_id,starts_at,time_tba,status,source_url,performance_label)
+        SELECT c.id,$2::timestamptz,true,'scheduled',$3,$4 FROM concerts c
+        WHERE c.id=$1 AND c.status='scheduled' AND NOT c.manual_override AND NOT EXISTS(
+          SELECT 1 FROM concert_performances p WHERE p.concert_id=c.id AND p.is_current
+          AND (p.starts_at AT TIME ZONE 'Asia/Bangkok')::date=($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date)
+        ON CONFLICT(concert_id,starts_at) DO NOTHING`,[concert.id,row.startsAt,url,row.performanceLabel || 'วันแสดงตามหน้ารวม ยังไม่ยืนยันเวลาและรอบย่อย']);
+      const firstListed = rows.filter(row => row.startsAt).map(row => row.startsAt!).sort()[0];
+      if (firstListed) await query(`UPDATE concerts SET starts_at=$2,time_tba=true,last_verified_at=NULL,updated_at=now()
+        WHERE id=$1 AND status='scheduled' AND NOT manual_override
+        AND ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date<(starts_at AT TIME ZONE 'Asia/Bangkok')::date`,[concert.id,firstListed]);
+      const physicalVenue = rows.find(row => row.venue && !/rerun|live\s*stream|ttm\s*live/i.test(row.venue))?.venue;
+      if (physicalVenue) await query(`UPDATE concerts SET venue=$2,last_verified_at=NULL,updated_at=now()
+        WHERE id=$1 AND status='scheduled' AND NOT manual_override AND venue~*'rerun|live[[:space:]]*stream|ttm[[:space:]]*live'`,[concert.id,physicalVenue]);
+      continue;
+    }
+    if (concert.organizer && source !== 'Live Nation Tero') continue;
     const times = rows.filter(row => row.startsAt).map(row => row.startsAt!);
     if (times.length && rows.every(row => row.completeSchedule)) {
       // Removed dates stay in history; removal alone is not a cancellation.
@@ -408,11 +461,11 @@ export async function saveSourceEvents(source: string, events: Event[]) {
 }
 
 type SourceResult = { seen: number; changed: number; metrics?: DiscoveryMetrics | Record<string, unknown>; status?: 'success' | 'partial' | 'failed' | 'skipped'; error?: string };
-async function runSource(name: string, category: 'concert' | 'news' | 'travel', load: () => Promise<SourceResult>, cycleId?: number) {
+async function runSource(name: string, category: 'concert' | 'news' | 'travel', load: (runId: number) => Promise<SourceResult>, cycleId?: number, initialMetrics?: Record<string, unknown>) {
   await query('INSERT INTO source_state(source_name,category,last_started_at) VALUES($1,$2,now()) ON CONFLICT(source_name) DO UPDATE SET last_started_at=now(), category=$2', [name, category]);
-  const run = await one<{ id: number }>('INSERT INTO sync_runs(source_name,category,cycle_id) VALUES($1,$2,$3) RETURNING id', [name, category, cycleId || null]);
+  const run = await one<{ id: number }>('INSERT INTO sync_runs(source_name,category,cycle_id,metrics) VALUES($1,$2,$3,$4) RETURNING id', [name, category, cycleId || null,JSON.stringify(initialMetrics || {})]);
   try {
-    const result = await load();
+    const result = await load(run!.id);
     const status = result.status || 'success';
     await query('UPDATE sync_runs SET finished_at=now(),status=$2,items_seen=$3,items_changed=$4,metrics=$5,error=$6 WHERE id=$1', [run!.id,status,result.seen,result.changed,JSON.stringify(result.metrics || {}),result.error || null]);
     await query(`UPDATE source_state SET last_success_at=CASE WHEN $3='success' THEN now() ELSE last_success_at END,
@@ -583,13 +636,13 @@ async function instagramResponse(response: Response, budget?: InstagramBudget) {
   return await response.json() as any;
 }
 
-export async function instagramBusinessPosts(handle: string, options: { includeMedia?: boolean; budget?: InstagramBudget } = {}) {
+export async function instagramBusinessPosts(handle: string, options: { includeMedia?: boolean; probe?: boolean; budget?: InstagramBudget } = {}) {
   const username = handle.trim().replace(/^@/, '').toLowerCase();
   if (!/^[a-z0-9._]+$/.test(username)) throw new Error('Instagram username is invalid');
   const expires = Date.parse(config.instagramGraphTokenExpiresAt);
   if (Number.isFinite(expires) && expires <= Date.now()) throw new Error('Instagram token expired');
-  const mediaFields = options.includeMedia === false ? '' : ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}';
-  const fields = `business_discovery.username(${username}){id,username,media.limit(20){id,caption,media_type,media_product_type,permalink,timestamp${mediaFields}}}`;
+  const mediaFields = options.probe || options.includeMedia === false ? '' : ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}';
+  const fields = `business_discovery.username(${username}){id,username,media.limit(${options.probe ? config.instagramProbeLimit : 20}){id${options.probe ? '' : ',caption'},media_type,media_product_type,permalink,timestamp${mediaFields}}}`;
   const url = new URL(`https://graph.facebook.com/${config.instagramGraphVersion}/${encodeURIComponent(config.instagramGraphUserId)}`);
   url.searchParams.set('fields', fields);
   await options.budget?.beforeRequest();
@@ -602,72 +655,110 @@ export async function instagramBusinessPosts(handle: string, options: { includeM
 
 async function syncInstagramNews(artistSlug?: string) {
   return await withInstagramBudget(async (budget) => {
-    const account = await one<{ id: string; artist_id: string; handle: string | null; external_id: string | null; refresh_media: boolean }>(`SELECT s.id,s.artist_id,s.handle,s.external_id,
+    type Account = { id: string; artist_id: string; slug: string; handle: string | null; external_id: string | null; last_checked_at: Date | null; instagram_failures: number; refresh_media: boolean };
+    const discovery = await one<Account>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.instagram_failures,
       (s.last_media_refresh_at IS NULL OR s.last_media_refresh_at <= now()-$2::double precision*interval '1 hour') AS refresh_media
       FROM social_accounts s JOIN artists a ON a.id=s.artist_id WHERE s.platform='instagram' AND s.verified_at IS NOT NULL
       AND ($1::text IS NULL OR a.slug=$1) AND (s.next_sync_at IS NULL OR s.next_sync_at<=now())
-      ORDER BY s.last_success_at NULLS FIRST,s.next_sync_at NULLS FIRST,a.slug,s.id LIMIT 1`, [artistSlug || null,config.instagramMediaRefreshHours]);
+      ORDER BY s.last_checked_at NULLS FIRST,s.next_sync_at NULLS FIRST,a.slug,s.id LIMIT 1`, [artistSlug || null,config.instagramMediaRefreshHours]);
+    const state = await one('SELECT usage,usage_checked_at,checks_since_media FROM instagram_sync_budget WHERE id=1');
+    const urgent = discovery && (!discovery.last_checked_at || Date.now()-discovery.last_checked_at.getTime()>=60*60_000);
+    const allowMedia = instagramMediaAllowed(state?.usage,state?.usage_checked_at);
+    const allowDetail = instagramMediaAllowed(state?.usage,state?.usage_checked_at,Date.now(),config.instagramDetailMaxUsagePercent);
+    const job = !urgent && (allowMedia || allowDetail) ? await one<Account & { failures: number; needs_text: boolean }>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.instagram_failures,j.failures,j.needs_text
+        FROM instagram_media_jobs j JOIN social_accounts s ON s.id=j.account_id JOIN artists a ON a.id=s.artist_id
+        WHERE s.platform='instagram' AND s.verified_at IS NOT NULL AND s.last_success_at IS NOT NULL AND s.instagram_failures=0
+        AND j.not_before<=now() AND ($1::text IS NULL OR a.slug=$1)
+        AND ((j.needs_text AND $2 AND $4) OR (NOT j.needs_text AND $3 AND $5))
+        ORDER BY j.needs_text DESC,j.requested_at,s.id LIMIT 1`,
+        [artistSlug || null,allowDetail,allowMedia,!discovery || state!.checks_since_media>=5,!discovery || state!.checks_since_media>=10]) : null;
+    const account = job || discovery;
     if (!account) return 0;
-    // Reserve this account before any network I/O, so crashes cannot retry it immediately.
-    await query(`UPDATE social_accounts SET next_sync_at=now()+$2::double precision*interval '1 minute' WHERE id=$1`, [account.id,config.socialSyncIntervalMinutes]);
+    const mode = job ? job.needs_text ? 'detail' : 'media' : 'discovery';
+    // Durable reservations protect both lanes across crashes, manual calls and restarts.
+    if (job) await query("UPDATE instagram_media_jobs SET not_before=now()+interval '5 minutes' WHERE account_id=$1",[account.id]);
+    else await query(`UPDATE social_accounts SET next_sync_at=now()+$2::double precision*interval '1 minute' WHERE id=$1`, [account.id,config.instagramCheckIntervalMinutes]);
     await query(`UPDATE sync_runs SET status='failed',finished_at=now(),error='Instagram worker stopped before sync finished'
       WHERE source_name='INSTAGRAM' AND status='running'`);
-    return await runSource('INSTAGRAM','news',async () => {
-      const metrics = { requests: 0, accountsChecked: 1, postsChecked: 0, newPosts: 0, mediaRefreshed: false, mediaDeferred: false };
-      let seen = 0;
-      const read = async (includeMedia: boolean) => {
+    const metrics: Record<string, unknown> = { mode,accountId: account.id,artistId: account.artist_id,artistSlug: account.slug,handle: account.handle,
+      requests: 0,accountsChecked: mode==='discovery' ? 1 : 0,postsChecked: 0,newPosts: 0,mediaRefreshed: false,textRefreshed: false,mediaQueued: false,
+      probeLimit: config.instagramProbeLimit,detailLimit: 20,usageBefore: state?.usage || null };
+    return await runSource('INSTAGRAM','news',async runId => {
+      const finish = async () => {
+        const result = await one('SELECT usage,usage_checked_at,paused_until,spacing_seconds,next_request_at FROM instagram_sync_budget WHERE id=1');
+        Object.assign(metrics,{ usageAfter: result?.usage,usageCheckedAt: result?.usage_checked_at,pausedUntil: result?.paused_until,
+          spacingSeconds: result?.spacing_seconds,nextRequestAt: result?.next_request_at });
+      };
+      const read = async () => {
+        const beforeRequest = async () => {
+          await budget.beforeRequest(); metrics.requests = Number(metrics.requests)+1;
+          // Persist identity and request attempts before I/O, including interrupted runs.
+          await query('UPDATE sync_runs SET metrics=$2 WHERE id=$1',[runId,JSON.stringify(metrics)]);
+        };
         const discovery = !!config.instagramGraphToken && !!config.instagramGraphUserId;
         if (discovery && account.handle) {
-          return await instagramBusinessPosts(account.handle, { includeMedia,budget: { ...budget,beforeRequest: async () => {
-            await budget.beforeRequest(); metrics.requests++;
-          } } });
+          return await instagramBusinessPosts(account.handle, { probe: mode==='discovery',includeMedia: mode==='media',budget: { ...budget,beforeRequest } });
         }
         if (discovery) throw new Error('Verified Instagram username required');
         if (!config.metaToken || !account.external_id) throw new Error('Instagram token/account ID missing; automatic discovery unavailable');
-        const fields = 'id,caption,timestamp,permalink,media_type,media_product_type' + (includeMedia ? ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}' : '');
-        await budget.beforeRequest(); metrics.requests++;
-        const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/media?fields=${fields}&limit=20`, { headers: { Authorization: 'Bearer ' + config.metaToken },signal: AbortSignal.timeout(15000) });
+        const fields = 'id,timestamp,permalink,media_type,media_product_type' + (mode==='discovery' ? '' : ',caption')
+          + (mode==='media' ? ',media_url,thumbnail_url,children.limit(20){id,media_type,media_url,thumbnail_url}' : '');
+        await beforeRequest();
+        const response = await fetch(`https://graph.facebook.com/${config.metaVersion}/${account.external_id}/media?fields=${fields}&limit=${mode==='discovery' ? config.instagramProbeLimit : 20}`, { headers: { Authorization: 'Bearer ' + config.metaToken },signal: AbortSignal.timeout(15000) });
         return instagramFeedPosts((await instagramResponse(response,budget)).data);
       };
-      const save = async (posts: Record<string,unknown>[], includeMedia: boolean) => {
-        for (const post of posts) {
-          const url = post.permalink;
-          if (typeof url !== 'string' || !validUrl(url) || !post.id) continue;
-          const media = includeMedia ? instagramMedia(post) : [];
-          const image = media[0]?.type === 'image' ? media[0].url : media[0]?.thumbnailUrl;
-          await query(includeMedia ? newsUpsertSql : newsMetadataUpsertSql, [account.artist_id,'instagram',url,post.id,post.caption || null,image || null,post.timestamp || null,JSON.stringify(media)]);
-        }
-      };
       try {
-        const probe = await read(false);
-        const previous = await query<{ source_url: string; body: string | null; has_media: boolean }>(`SELECT source_url,body,jsonb_array_length(media_items)>0 AS has_media
-          FROM news_items WHERE artist_id=$1 AND platform='instagram' AND source_url=ANY($2::text[])`, [account.artist_id,probe.map(post => post.permalink).filter(value => typeof value === 'string')]);
+        const posts = (await read()).filter(post => typeof post.permalink==='string' && validUrl(post.permalink) && post.id);
+        const previous = await query<{ source_url: string; instagram_details_checked_at: Date | null }>(`SELECT source_url,instagram_details_checked_at
+          FROM news_items WHERE artist_id=$1 AND platform='instagram' AND source_url=ANY($2::text[])`, [account.artist_id,posts.map(post => post.permalink)]);
         const known = new Map(previous.map(post => [post.source_url,post]));
-        metrics.postsChecked = probe.length;
-        metrics.newPosts = probe.filter(post => !known.has(String(post.permalink))).length;
-        const needMedia = account.refresh_media || probe.some(post => {
-          const previous = known.get(String(post.permalink));
-          return !previous || !previous.has_media || previous.body !== (post.caption || null);
-        });
-        await save(probe,false); seen = probe.length;
-        if (needMedia && probe.length) {
-          if (await budget.paused()) metrics.mediaDeferred = true;
-          else {
-            await new Promise(resolve => setTimeout(resolve,2_000));
-            const full = await read(true);
-            await save(full,true);
-            await query('UPDATE social_accounts SET last_media_refresh_at=now() WHERE id=$1',[account.id]);
-            metrics.mediaRefreshed = true;
-          }
+        metrics.postsChecked = posts.length;
+        metrics.newPosts = posts.filter(post => !known.has(String(post.permalink))).length;
+        for (const post of posts) {
+          const media = mode==='media' ? instagramMedia(post) : [];
+          const image = media[0]?.type === 'image' ? media[0].url : media[0]?.thumbnailUrl;
+          await query(mode==='media' ? newsUpsertSql : mode==='detail' ? newsMetadataUpsertSql : newsIdentityUpsertSql,
+            [account.artist_id,'instagram',post.permalink,post.id,mode==='discovery' ? null : post.caption || null,image || null,post.timestamp || null,JSON.stringify(media)]);
         }
-        await query('UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=$2 WHERE id=$1', [account.id,metrics.mediaDeferred ? 'Instagram media refresh deferred: usage cooldown' : null]);
-        return { seen,changed: metrics.newPosts,metrics,status: metrics.mediaDeferred ? 'partial' : 'success',error: metrics.mediaDeferred ? 'Instagram media refresh deferred: usage cooldown' : undefined };
+        if (mode!=='discovery') await query("UPDATE news_items SET instagram_details_checked_at=now() WHERE artist_id=$1 AND platform='instagram' AND source_url=ANY($2::text[])",[account.artist_id,posts.map(post => post.permalink)]);
+        if (mode==='media') {
+          await query("UPDATE social_accounts SET last_media_refresh_at=now(),last_error=CASE WHEN last_error LIKE 'Instagram media refresh deferred:%' THEN NULL ELSE last_error END WHERE id=$1",[account.id]);
+          await query('DELETE FROM instagram_media_jobs WHERE account_id=$1',[account.id]);
+          await query('UPDATE instagram_sync_budget SET checks_since_media=0 WHERE id=1');
+          metrics.mediaRefreshed = true;
+        } else if (mode==='detail') {
+          await query('UPDATE instagram_media_jobs SET needs_text=false,not_before=now(),failures=0,last_error=NULL WHERE account_id=$1',[account.id]);
+          await query('UPDATE instagram_sync_budget SET checks_since_media=0 WHERE id=1');
+          metrics.textRefreshed = true;
+        } else {
+          const reason = Number(metrics.newPosts)>0 ? 'new-post' : posts.some(post => !known.get(String(post.permalink))?.instagram_details_checked_at) ? 'missing-detail' : account.refresh_media ? 'refresh' : null;
+          if (reason && posts.length) {
+            await query(`INSERT INTO instagram_media_jobs(account_id,reason,needs_text) VALUES($1,$2,$3) ON CONFLICT(account_id) DO UPDATE SET
+              reason=CASE WHEN EXCLUDED.reason='new-post' THEN EXCLUDED.reason ELSE instagram_media_jobs.reason END,
+              needs_text=instagram_media_jobs.needs_text OR EXCLUDED.needs_text,
+              not_before=CASE WHEN EXCLUDED.reason='new-post' AND NOT instagram_media_jobs.needs_text THEN now() ELSE instagram_media_jobs.not_before END,
+              failures=CASE WHEN EXCLUDED.reason='new-post' AND NOT instagram_media_jobs.needs_text THEN 0 ELSE instagram_media_jobs.failures END`,[account.id,reason,reason!=='refresh']);
+            metrics.mediaQueued = true;
+          }
+          if (!posts.length) await query('DELETE FROM instagram_media_jobs WHERE account_id=$1',[account.id]);
+          await query(`UPDATE social_accounts SET last_checked_at=now(),last_success_at=now(),last_error=NULL,instagram_failures=0,
+            next_sync_at=now()+$2::double precision*interval '1 minute' WHERE id=$1`,[account.id,config.instagramCheckIntervalMinutes]);
+          await query('UPDATE instagram_sync_budget SET checks_since_media=LEAST(100000,checks_since_media+1) WHERE id=1');
+        }
+        await finish();
+        return { seen: posts.length,changed: Number(metrics.newPosts),metrics };
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Instagram sync failed';
-        await query(`UPDATE social_accounts SET last_checked_at=now(),last_success_at=CASE WHEN $3 THEN now() ELSE last_success_at END,last_error=$2 WHERE id=$1`, [account.id,message,seen>0]);
-        return { seen,changed: metrics.newPosts,metrics,status: seen>0 ? 'partial' : 'failed',error: message };
+        const message = error instanceof Error ? error.message.slice(0,500) : 'Instagram sync failed';
+        const failures = (job ? job.failures : account.instagram_failures)+1;
+        const retry = instagramRetryMinutes(error,failures);
+        metrics.retryMinutes = retry;
+        if (job) await query(`UPDATE instagram_media_jobs SET failures=failures+1,last_error=$2,not_before=now()+$3::double precision*interval '1 minute' WHERE account_id=$1`,[account.id,message,retry]);
+        else await query(`UPDATE social_accounts SET last_checked_at=now(),last_error=$2,instagram_failures=instagram_failures+1,
+          next_sync_at=now()+$3::double precision*interval '1 minute' WHERE id=$1`,[account.id,message,retry]);
+        await finish();
+        return { seen: 0,changed: 0,metrics,status: 'failed',error: message };
       }
-    });
+    },undefined,metrics);
   }) ?? 0;
 }
 

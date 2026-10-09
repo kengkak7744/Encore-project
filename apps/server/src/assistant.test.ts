@@ -173,14 +173,14 @@ test('Thai assistant and trip budgets through authenticated HTTP', { skip: !proc
         });
         try {
           config.agodaEnvironment='sandbox';
-          const sandbox = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 3,nights: 2,travellerCountry: 'TH' });
+          const sandbox = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 3,nights: 2,travellerCountry: 'TH',useExternalProviders: true });
           const hotel = sandbox.body.items.find((item: any) => item.kind==='hotel');
           assert.equal(hotel.amount,3500); assert.equal(hotel.priceType,'observed'); assert.ok(hotel.note.includes('sandbox')); assert.ok(hotel.observedAt && hotel.validUntil);
           config.agodaEnvironment='production';
-          const productionMock = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 3,nights: 2,travellerCountry: 'TH' });
+          const productionMock = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 3,nights: 2,travellerCountry: 'TH',useExternalProviders: true });
           assert.equal(productionMock.body.items.find((item: any) => item.kind==='hotel').priceType,'live');
           failing=true; config.googleRoutesEnabled=true; config.googleRoutesKey='fictional-routes-key';
-          const unavailable = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 2,nights: 1,travellerCountry: 'TH',distanceKm: 123 });
+          const unavailable = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 2,nights: 1,travellerCountry: 'TH',useExternalProviders: true,distanceKm: 123 });
           assert.equal(unavailable.status,200); assert.equal(unavailable.body.distanceSource,'user'); assert.equal(unavailable.body.distanceKmUsed,123);
           const fallback = unavailable.body.items.find((item: any) => item.kind==='hotel');
           assert.equal(fallback.amount,1200); assert.equal(fallback.priceType,'estimate'); assert.equal(fallback.sourceUrl,undefined);
@@ -194,6 +194,20 @@ test('Thai assistant and trip budgets through authenticated HTTP', { skip: !proc
         assert.equal(items.flight.amount,7200); assert.equal(items.hotel.amount,5002); assert.equal(items.car.amount,700);
         assert.equal(result.body.summary.complete,true); assert.deepEqual(result.body.summary.totals,[{ currency: 'USD',amount: 300 },{ currency: 'THB',amount: 12202 }]);
         assert.equal((await client.query('SELECT price_min FROM concerts WHERE id=$1',[show])).rows[0].price_min,'1500.00');
+      });
+      await t.test('Quick manual totals bypass enabled route/hotel providers without multiplying party totals',async () => {
+        Object.assign(config,{ googleRoutesEnabled: true,googleRoutesKey: 'fixture-only',agodaEnabled: true,agodaClientId: 'fixture-only',agodaClientSecret: 'fixture-only',agodaTokenUrl: 'https://fixture.agoda.com/token',agodaSearchUrl: 'https://fixture.agoda.com/search',agodaPropertyIds: '{"BKK":[999999998]}' });
+        let calls = 0;
+        const external = t.mock.method(globalThis,'fetch',async () => { calls++; throw Error('Manual flow must not contact providers'); });
+        try {
+          const result = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',people: 3,nights: 2,rooms: 2,transport: 'bus',travellerCountry: 'TH',checkInDate: '2030-01-15',useExternalProviders: false,manualPrices: { bus: { amount: 1500,currency: 'THB',unit: 'group_total' },hotel: { amount: 4000,currency: 'THB',unit: 'group_total' } } });
+          assert.equal(result.status,200);
+          assert.equal(calls,0);
+          assert.deepEqual(result.body.summary.totals,[{ currency: 'THB',amount: 10000 }]);
+          assert.equal(result.body.items.find((item: any) => item.kind==='bus').amount,1500);
+          assert.equal(result.body.items.find((item: any) => item.kind==='hotel').amount,4000);
+          assert.equal(result.body.items.find((item: any) => item.kind==='hotel').priceType,'user');
+        } finally { external.mock.restore(); config.googleRoutesEnabled=false; config.agodaEnabled=false; }
       });
       await t.test('Saving/loading trip prices is scoped to the authenticated user and upserts only their own budget',async () => {
         const first = await request('/trip-estimates',{ concertId: show,origin: 'เชียงใหม่',nights: 0,transport: 'car',manualPrices: { car: { amount: 500,currency: 'THB',unit: 'group_total' } },save: true });

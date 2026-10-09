@@ -7,7 +7,11 @@ export async function workerHeartbeat(boot = false) {
 }
 
 // The database clock and session lock preserve the hourly AI limit across worker restarts.
-export async function runScheduledAI(work = async () => { await enrichKnowledge(); await summarizeNews(); }) {
+export async function runScheduledAI(work = async () => {
+  const errors:unknown[]=[];
+  for(const task of [enrichKnowledge,summarizeNews])try{await task();}catch(error){errors.push(error);}
+  if(errors.length)throw new AggregateError(errors,'AI maintenance did not finish all tasks');
+}) {
   const client = await pool.connect();
   let locked = false;
   try {

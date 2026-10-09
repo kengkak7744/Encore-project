@@ -203,7 +203,9 @@ test('Permissions and session lifecycle through the production HTTP app', { skip
       });
       const googleBefore = { enabled: config.googleRoutesEnabled,key: config.googleRoutesKey };
       Object.assign(config,{ googleRoutesEnabled: true,googleRoutesKey: 'fixture-only' });
-      try { assert.equal((await request('/trip-estimates','POST',active.cookie,{ concertId: showA,origin: 'เชียงใหม่',save: true })).status,401); }
+      await fixtures.query("UPDATE concerts SET venue='Fixture Hall' WHERE id=$1",[showA]);
+      await fixtures.query('UPDATE concerts SET venue_location=$2 WHERE id=$1',[showA,JSON.stringify({address:null,latitude:13.75,longitude:100.5,placeId:null,sourceUrl:'https://organizer.example/fixture',checkedAt:new Date().toISOString()})]);
+      try { assert.equal((await request('/trip-estimates','POST',active.cookie,{ concertId: showA,origin: 'เชียงใหม่',save: true,useExternalProviders:true })).status,401); }
       finally { mocked.mock.restore(); Object.assign(config,{ googleRoutesEnabled: googleBefore.enabled,googleRoutesKey: googleBefore.key }); }
       const login = await request('/auth/login','POST',undefined,{ email: 'during-trip@example.test',password: 'fixture-password-123' });
       assert.equal((await request('/me/trip-budgets/'+showA,'GET',login.headers.get('set-cookie')!.split(';')[0])).status,404);

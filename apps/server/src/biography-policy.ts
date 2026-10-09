@@ -1,4 +1,4 @@
-export type BiographyArtist = { id: string; slug: string; name: string; name_en: string | null; kind: string; updated_at?: string };
+export type BiographyArtist = { id: string; slug: string; name: string; name_en: string | null; kind: string; updated_at?: string; instagram_handle?: string|null };
 export type BiographySource = { id: string; url: string; label: string; text: string; fetchedAt: string };
 export type BiographySection = { heading: string; body: string; sourceId: string; evidence: string[] };
 export type BiographyDraft = { identityMatches: boolean; reason: string; sections: BiographySection[] };

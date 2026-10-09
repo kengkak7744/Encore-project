@@ -104,10 +104,20 @@ test('new artist flows from administrator creation through scheduled biography, 
     });
     await t.test('unverified accounts do not fetch news; explicit verification enables automatic discovery and repeat reads respect cadence', async () => {
       assert.equal(await syncNews({ platform: 'instagram', artistSlug: artist.slug }), 0);
-      assert.deepEqual(graphCalls, []); assert.equal((await request('/news?artistId=' + artist.id)).body.total, 0);
+      assert.equal(graphCalls.length,0); assert.equal((await request('/news?artistId=' + artist.id)).body.total, 0);
       assert.equal((await request('/admin/artists/' + artist.id + '/accounts/' + accountId, 'PATCH', 'admin', { verified: true })).status, 200);
       assert.equal(await syncNews({ platform: 'instagram', artistSlug: artist.slug }), 1);
-      const news = (await request('/news?artistId=' + artist.id)).body;
+      let news = (await request('/news?artistId=' + artist.id)).body;
+      assert.equal(news.total,1); assert.equal(news.items[0].body,null); assert.deepEqual(news.items[0].media_items,[]);
+      assert.equal(graphCalls.length,1); assert.ok(!graphCalls[0].includes('caption'));
+      // A later scheduled slot enriches text/media without bypassing cadence in production.
+      await database.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
+      assert.equal(await syncNews({ platform: 'instagram', artistSlug: artist.slug }),1);
+      news = (await request('/news?artistId=' + artist.id)).body;
+      assert.ok(news.items[0].body); assert.deepEqual(news.items[0].media_items,[]);
+      await database.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
+      assert.equal(await syncNews({ platform: 'instagram', artistSlug: artist.slug }),1);
+      news = (await request('/news?artistId=' + artist.id)).body;
       assert.equal(news.total, 1); assert.equal(news.items[0].source_url, 'https://www.instagram.com/p/FlowFixture/'); assert.equal(news.items[0].media_items[0].url, 'https://example.org/fixture-photo.jpg');
       const requests = graphCalls.length;
       assert.equal(await syncNews({ platform: 'instagram', artistSlug: artist.slug }), 0);

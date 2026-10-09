@@ -7,6 +7,8 @@ import { adminRoutes } from './routes/admin.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { ArtistEditError } from './artist-editor.js';
 import { communityRoutes } from './routes/community.js';
+import { mapsRoutes } from './routes/maps.js';
+import { requestLimits } from './request-limits.js';
 
 export function createApp() {
   const app = express();
@@ -14,16 +16,6 @@ export function createApp() {
   app.use('/api',(_req,res,next) => {
     res.setHeader('Cache-Control','private, no-store');
     res.vary('Cookie');
-    next();
-  });
-  const recent = new Map<string, { count: number; until: number }>();
-  app.use((req, res, next) => {
-    if (!req.path.startsWith('/api/auth/') && req.path !== '/api/chat' && req.path !== '/api/trip-estimates') { next(); return; }
-    const key = (req.ip || 'unknown') + ':' + req.path;
-    const now = Date.now(); const entry = recent.get(key);
-    const current = !entry || entry.until < now ? { count: 0, until: now + 60000 } : entry;
-    current.count++; recent.set(key, current);
-    if (current.count > (req.path === '/api/trip-estimates' ? 5 : 20)) { res.status(429).json({ error: 'ส่งคำขอมากเกินไป กรุณารอสักครู่' }); return; }
     next();
   });
   app.use((req, res, next) => {
@@ -41,7 +33,8 @@ export function createApp() {
   // Binary media is parsed only after authentication; other JSON endpoints retain their small limit.
   app.post('/api/feed/uploads',attachUser,requireUser,express.raw({ limit: '25mb',type: ['image/jpeg','image/png','image/webp','video/mp4','video/webm'] }));
   app.use(express.json({ limit: '100kb' }));
-  app.use('/api', attachUser, publicRoutes, accountRoutes, communityRoutes, assistantRoutes);
+  app.use(attachUser,requestLimits());
+  app.use('/api', publicRoutes, accountRoutes, communityRoutes, mapsRoutes, assistantRoutes);
   app.use('/api/admin', attachUser, adminRoutes);
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof ArtistEditError) { res.status(error.status).json({ error: error.message }); return; }
