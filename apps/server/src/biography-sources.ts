@@ -6,6 +6,7 @@ import * as cheerio from 'cheerio';
 import { robotsAllows } from './ingest.js';
 import { normalizeArtistName, normalizeText, type BiographyArtist, type BiographySource } from './biography-policy.js';
 import { extractArtistRosterText } from './biography-roster.js';
+import { extractBiographyVideoSource } from './biography-video-source.js';
 
 const userAgent = 'ArtistTrackerResearch/0.2 (Encore; public artist biographies)';
 const robotsCache = new Map<string, { text: string; expires: number }>();
@@ -63,13 +64,66 @@ async function permitted(url: URL, signal: AbortSignal) {
   if (!robotsAllows(cached.text, url.pathname + url.search)) throw new Error('Source disallows automated reading in robots.txt');
 }
 
+// Only publication metadata scoped to an article. Fetch time, page modification
+// and unrelated navigation/footer dates must never date a historical claim.
+export function extractBiographyPublishedAt(html: string, now = new Date()): string|null {
+  const $ = cheerio.load(html);
+  const values: unknown[] = $('meta[property="article:published_time"],meta[name="datePublished"],meta[itemprop="datePublished"]').map((_,el)=>$(el).attr('content')).get();
+  const visit = (value: unknown,depth = 0) => {
+    if (!value || typeof value!=='object' || depth>8) return;
+    if (Array.isArray(value)) { for (const child of value) visit(child,depth+1); return; }
+    const item = value as Record<string,unknown>;
+    if ([item['@type']].flat().some(type=>typeof type==='string' && /^(?:Article|NewsArticle|BlogPosting|MusicArticle)$/.test(type))) values.push(item.datePublished);
+    if (item['@graph']) visit(item['@graph'],depth+1);
+  };
+  $('script[type="application/ld+json"]').each((_,el)=>{ try { visit(JSON.parse($(el).text())); } catch { /* Optional malformed metadata. */ } });
+  $('article time[datetime],main time[itemprop="datePublished"][datetime]').each((_,el)=>{ values.push($(el).attr('datetime')); });
+  const dates = [...new Set(values.flatMap(value=>{
+    if (typeof value!=='string' || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return [];
+    const day=value.slice(0,10),parsed=Date.parse(day+'T00:00:00Z');
+    return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0,10)===day && parsed<=now.getTime() && parsed>=Date.UTC(1900,0,1) ? [day] : [];
+  }))];
+  return dates.length===1 ? dates[0] : null;
+}
+
 export function extractBiographyText(html: string): string {
   const $ = cheerio.load(html);
   $('script,style,noscript,nav,header,footer,form,aside,[role=navigation],.references,.reflist').remove();
   const root = $('article').first().length ? $('article').first() : $('main').first().length ? $('main').first() : $('body');
   const paragraphs = [...new Set(root.find('p').map((_, item) => normalizeText($(item).text())).get().filter((text) => text.length >= 35))];
   const title = normalizeText($('title').text());
-  return normalizeText(title + '\n' + (paragraphs.length ? paragraphs.join('\n') : root.text()));
+  // Short release-date lines are often excluded by the prose length filter.
+  // Put explicitly labelled event dates before prose so the context cap keeps them.
+  const releaseDates=[...new Set(root.text().match(/(?:Release Date|วัน(?:ที่)?(?:วางจำหน่าย|เผยแพร่|ปล่อยเพลง))\s*[:：]?\s*\d{1,2}[./-]\d{1,2}[./-](?:\d{4}|\d{2})(?!\d)/gi)||[])].slice(0,8);
+  // Keep article paragraphs distinct so a theme cannot drift into the next song.
+  return [title,...releaseDates,...(paragraphs.length?paragraphs:[normalizeText(root.text())])]
+    .map(normalizeText).filter(Boolean).join('\n\n');
+}
+
+// Trailer synopses can fill the context cap before the cast list. Preserve
+// complete published cast rows before prose; never infer translated role names.
+export function extractBiographyCastText(html:string):string {
+  const $=cheerio.load(html);
+  $('script,style,noscript,nav,header,footer,form,aside,[role=navigation]').remove();
+  const root=$('main').first().length?$('main').first():$('body');
+  root.find('br').replaceWith('\n');
+  root.find('p,div,section,li').append('\n');
+  const cast=[...new Set(root.text().split(/\r?\n/).map(normalizeText).filter(line=>line.length>=20&&line.length<=250&&/รับบท\s+/.test(line)))];
+  const text=extractBiographyText(html);
+  return cast.length>=2?[normalizeText($('title').text()),...cast,text].filter(Boolean).join('\n\n'):text;
+}
+
+export function extractBiographyGmmtvNewsText(html:string):string {
+  const $=cheerio.load(html);$('script,style,noscript,nav,header,footer,form,aside,[role=navigation]').remove();
+  const root=$('main').first().length?$('main').first():$('body');
+  root.find('br').replaceWith('\n');root.find('p,div,section,li').append('\n');
+  const thai=[...new Set(root.text().split(/\r?\n/).map(normalizeText).filter(line=>{
+    const count=(line.match(/[\u0e00-\u0e7f]/g)||[]).length;
+    return count>=80&&count>(line.match(/[A-Za-z]/g)||[]).length;
+  }))];
+  if(thai.length<2)return extractBiographyText(html);
+  const roles=thai.filter(line=>/รับบท|เป็นเรื่องราวของ/.test(line));
+  return [normalizeText($('title').text()),...roles,...thai.filter(line=>!roles.includes(line))].filter(Boolean).join('\n\n');
 }
 
 async function readSource(link: SourceLink, signal: AbortSignal, artist: BiographyArtist): Promise<BiographySource> {
@@ -80,11 +134,16 @@ async function readSource(link: SourceLink, signal: AbortSignal, artist: Biograp
     if ([301, 302, 303, 307, 308].includes(response.status) && response.location) { url = new URL(response.location, url); continue; }
     if (response.status !== 200 || !response.type.includes('html')) throw new Error('Source is not accessible HTML: HTTP ' + response.status);
     const roster=['www.whattheduckmusic.com','whattheduckmusic.com'].includes(url.hostname)&&/^\/a\/?$/.test(url.pathname);
-    const extracted=roster?extractArtistRosterText(response.text,[artist.name,artist.name_en||''],artist.instagram_handle||undefined):extractBiographyText(response.text);
+    const videoPage=['youtube.com','www.youtube.com'].includes(url.hostname)&&url.pathname==='/watch';
+    const video=videoPage?extractBiographyVideoSource(response.text,url):null;
+    if(videoPage&&!video)throw new Error('Matching public video description unavailable');
+    const castPage=['www.gmm-tv.com','gmm-tv.com'].includes(url.hostname)&&/^\/contents\//.test(url.pathname);
+    const gmmtvNews=['www.gmm-tv.com','gmm-tv.com'].includes(url.hostname)&&/^\/news\//.test(url.pathname);
+    const extracted=videoPage?video!.text:roster?extractArtistRosterText(response.text,[artist.name,artist.name_en||''],artist.instagram_handle||undefined):castPage?extractBiographyCastText(response.text):gmmtvNews?extractBiographyGmmtvNewsText(response.text):extractBiographyText(response.text);
     if(extracted===null)throw new Error('Roster does not contain one matching artist and verified Instagram account');
     const text = extracted.slice(0, 2400);
     if (text.length < 250) throw new Error('Source contains too little readable biography text');
-    return { id: '', url: url.toString(), label: link.label.slice(0, 160), text, fetchedAt: new Date().toISOString() };
+    return { id: '', url: url.toString(), label: link.label.slice(0, 160), text, fetchedAt: new Date().toISOString(), publishedAt: videoPage?video!.publishedAt:extractBiographyPublishedAt(response.text) };
   }
   throw new Error('Too many source redirects');
 }
@@ -121,6 +180,11 @@ async function discoverWikipedia(artist: BiographyArtist, signal: AbortSignal): 
   return results;
 }
 
+export function orderBiographyDocuments(documents:BiographySource[]):BiographySource[] {
+  return [...documents].sort((a,b)=>Number(!!b.publishedAt&&Number.isFinite(Date.parse(b.publishedAt)))-Number(!!a.publishedAt&&Number.isFinite(Date.parse(a.publishedAt))))
+    .map((doc,index)=>({...doc,id:'source-'+(index+1),text:doc.text.slice(0,2000)}));
+}
+
 export async function collectBiographySources(artist: BiographyArtist, links: SourceLink[], signal: AbortSignal): Promise<CollectedSources> {
   const documents: BiographySource[] = [];
   const errors: CollectedSources['errors'] = [];
@@ -136,5 +200,5 @@ export async function collectBiographySources(artist: BiographyArtist, links: So
   }
   const unique = documents.filter((doc, index) => documents.findIndex((other) => other.url === doc.url) === index).slice(0, 3);
   // Keep context small enough for an 8K model context on 16 GB VRAM.
-  return { documents: unique.map((doc, index) => ({ ...doc, id: 'source-' + (index + 1), text: doc.text.slice(0, 2000) })), errors };
+  return { documents: orderBiographyDocuments(unique), errors };
 }

@@ -1,8 +1,9 @@
 import { primaryConcertSources } from './concert-types.js';
+import {hasExclusionEvidence} from './concert-page-evidence.js';
 
 const hour = 3_600_000;
 export type MonitorWindow = { id: string | number; started_at: string | Date; ends_at: string | Date; reason?: string | null };
-export type MonitorRun = { source_name: string; scheduled_at: string | Date; started_at: string | Date; finished_at: string | Date | null; status: string; items_seen: number; items_changed: number; error: string | null; metrics: Record<string, unknown> };
+export type MonitorRun = { source_name: string; scheduled_at: string | Date; started_at: string | Date; finished_at: string | Date | null; status: string; items_seen: number; items_changed: number; error: string | null; metrics: Record<string, unknown>; ingestionMode?:'scheduled'|'manual' };
 const instant = (value: string | Date) => new Date(value).getTime();
 export function buildConcertMonitor(window: MonitorWindow | null, runs: MonitorRun[], now = Date.now()) {
   if (!window) return null;
@@ -41,30 +42,38 @@ export function buildConcertMonitor(window: MonitorWindow | null, runs: MonitorR
       missing: day.filter(row => row.status === 'missing').length,
       other: day.filter(row => ['running','skipped','awaiting'].includes(row.status)).length };
   });
-  const coverage = primaryConcertSources.map(source => {
-    const history = runs.filter(run => run.source_name === source && instant(run.scheduled_at) >= start && instant(run.scheduled_at) < end && instant(run.started_at) <= now)
-      .sort((a,b) => instant(a.started_at) - instant(b.started_at));
-    const catalogRun = [...history].reverse().find(run => Array.isArray(run.metrics.catalogUrls));
-    const catalog = new Set<string>(catalogRun ? (catalogRun.metrics.catalogUrls as unknown[]).filter((url): url is string => typeof url === 'string') : []);
-    const evidence = new Map<string,{ url: string; outcome: string; checkedAt: string; error: string | null; listingFallback: boolean }>();
-    for (const run of history) for (const page of Array.isArray(run.metrics.pages) ? run.metrics.pages : []) {
-      if (!page || typeof page.url !== 'string' || !['parsed','empty','failed'].includes(page.outcome)) continue;
-      evidence.set(page.url,{ url: page.url,outcome: page.outcome,checkedAt: new Date(run.started_at).toISOString(),error: typeof page.error === 'string' ? page.error : null,listingFallback: page.listingFallback === true });
-    }
-    const pages = [...catalog].sort().map(url => evidence.get(url) || { url,outcome: 'pending',checkedAt: null,error: null,listingFallback: false });
-    const counts = (outcome: string) => pages.filter(page => page.outcome === outcome).length;
-    const parsed = counts('parsed'),empty = counts('empty'),failed = counts('failed'),pending = counts('pending');
-    const stale = !catalogRun || now - instant(catalogRun.started_at) > 2*hour;
-    return { source,catalog: catalog.size,checked: pages.length - pending,parsed,empty,failed,pending,
-      listingFallback: pages.filter(page => page.listingFallback).length,observedAt: catalogRun ? new Date(catalogRun.started_at).toISOString() : null,stale,
-      verdict: !catalogRun ? 'untracked' : stale || pending || failed || empty || catalogRun.metrics.catalogComplete === false || ['failed','skipped'].includes(history.at(-1)?.status || '') ? 'needs_review' : 'checked',pages };
-  });
+  const coverage = buildConcertCoverage(runs.filter(run=>instant(run.scheduled_at)>=start&&instant(run.scheduled_at)<end),now);
   return { windowId: window.id, reason: window.reason || null, startedAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString(),
     generatedAt: new Date(now).toISOString(), elapsedHours, totalHours: 168, expectedChecks: 672,
     elapsedExpectedChecks: elapsed.length, checked: checked.length, issues: issues.length,
     cadenceIssues: cadenceIssues.length,
     cadenceVerdict: now < end ? 'collecting' : cadenceIssues.length ? 'needs_review' : 'passed',
     verdict: now < end ? 'collecting' : issues.length ? 'needs_review' : 'passed', daily, rows,coverage };
+}
+export function buildConcertCoverage(runs:MonitorRun[],now=Date.now()) {
+  return primaryConcertSources.map(source => {
+    const history = runs.filter(run => run.source_name === source && instant(run.started_at) <= now)
+      .sort((a,b) => instant(a.started_at) - instant(b.started_at));
+    const catalogRun = [...history].reverse().find(run => Array.isArray(run.metrics.catalogUrls)&&run.metrics.evidenceScope!=='selected_pages');
+    const catalog = new Set<string>(catalogRun ? (catalogRun.metrics.catalogUrls as unknown[]).filter((url): url is string => typeof url === 'string') : []);
+    const evidence = new Map<string,{ url: string; outcome: string; checkedAt: string|null; error: string | null; listingFallback: boolean;reason?:string; evidence?:Record<string,unknown>;ingestionMode?:string }>();
+    for (const run of history) for (const page of Array.isArray(run.metrics.pages) ? run.metrics.pages : []) {
+      if (!page || typeof page.url !== 'string' || !['parsed','empty','failed','excluded'].includes(page.outcome)) continue;
+      const resolved=page.outcome==='excluded'&&hasExclusionEvidence(page);
+      const outcome=page.outcome==='excluded'&&!resolved?'empty':page.outcome;
+      const observed=typeof page.checkedAt==='string'?Date.parse(page.checkedAt):NaN;
+      const checkedAt=Number.isFinite(observed)&&observed>=instant(run.started_at)&&observed<=now&&(!run.finished_at||observed<=instant(run.finished_at))?new Date(observed).toISOString():new Date(run.started_at).toISOString();
+      evidence.set(page.url,{ url: page.url,outcome,checkedAt,error: typeof page.error === 'string' ? page.error : null,listingFallback: page.listingFallback === true,
+        ...(typeof page.reason==='string'?{reason:page.reason}:{}),...(page.evidence&&typeof page.evidence==='object'?{evidence:page.evidence}:{}),...(run.ingestionMode?{ingestionMode:run.ingestionMode}:{}) });
+    }
+    const pages = [...catalog].sort().map(url => evidence.get(url) || { url,outcome: 'pending',checkedAt: null,error: null,listingFallback: false });
+    const counts = (outcome: string) => pages.filter(page => page.outcome === outcome).length;
+    const parsed = counts('parsed'),empty = counts('empty'),failed = counts('failed'),pending = counts('pending'),excluded=counts('excluded');
+    const stale = !catalogRun || now - instant(catalogRun.started_at) > 2*hour;
+    return { source,catalog: catalog.size,checked: pages.length - pending,parsed,empty,failed,pending,excluded,
+      listingFallback: pages.filter(page => page.listingFallback).length,observedAt: catalogRun ? new Date(catalogRun.started_at).toISOString() : null,stale,
+      verdict: !catalogRun ? 'untracked' : stale || pending || failed || empty || catalogRun.metrics.catalogComplete === false || ['failed','skipped'].includes(history.at(-1)?.status || '') ? 'needs_review' : 'checked',pages };
+  });
 }
 export type ConcertMonitor = NonNullable<ReturnType<typeof buildConcertMonitor>> & { supplementalCoverage?: NonNullable<ReturnType<typeof buildConcertMonitor>>['coverage'] };
 function csvCell(value: unknown) {
@@ -76,9 +85,10 @@ export function concertMonitorCsv(report: ConcertMonitor) {
   const header = ['hour','source','scheduled_at','status','started_at','finished_at','late','items_seen','new_sources','discovered','attempted','fetch_failures','pending_catalog','error','listing_fallback'];
   return '\uFEFF' + [header, ...report.rows.map(row => [row.hour,row.source,row.scheduledAt,row.status,row.startedAt,row.finishedAt,row.late,row.seen,row.added,row.metrics.discovered,row.metrics.attempted,row.metrics.fetchFailures,row.metrics.pending,row.error,row.metrics.listingFallback])].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
-export function concertCoverageCsv(report: ConcertMonitor) {
-  const header = ['source','catalog_observed_at','url','outcome','checked_at','listing_only_fallback','error'];
-  return '\uFEFF' + [header,...report.coverage.flatMap(source => source.pages.map(page => [source.source,source.observedAt,page.url,page.outcome,page.checkedAt,page.listingFallback,page.error]))]
+export function concertCoverageCsv(report: Pick<ConcertMonitor,'coverage'>) {
+  const annotated=report.coverage.some(source=>source.pages.some(page=>page.reason||page.evidence||page.ingestionMode));
+  const header = ['source','catalog_observed_at','url','outcome','checked_at','listing_only_fallback','error',...(annotated?['reason','source_evidence','ingestion_mode']:[])];
+  return '\uFEFF' + [header,...report.coverage.flatMap(source => source.pages.map(page => [source.source,source.observedAt,page.url,page.outcome,page.checkedAt,page.listingFallback,page.error,...(annotated?[page.reason,page.evidence?JSON.stringify(page.evidence):'',page.ingestionMode]:[])]))]
     .map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 export function concertMonitorMarkdown(report: ConcertMonitor) {

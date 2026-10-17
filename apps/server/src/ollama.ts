@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { config } from './config.js';
 import { ollamaQueue } from './ollama-queue.js';
+import {OllamaHttpError,ollamaHttpError} from './ollama-errors.js';
 
 type ModelResponse = { message?: { content?: string }; embeddings?: number[][]; done_reason?: string; [key: string]: unknown };
 const ownedModels = () => new Set([config.chatModel,config.embedModel,config.biographyModel]);
@@ -21,15 +22,24 @@ async function releaseModel(url: string,model: string) {
   while ((await models(url,signal)).includes(model)) await delay(100,undefined,{ signal });
 }
 
-export async function ollamaJson(url: string,path: '/api/chat' | '/api/embed',body: { model: string; [key: string]: unknown },options: { interactive?: boolean; signal?: AbortSignal; timeoutMs: number }): Promise<ModelResponse> {
+export async function ollamaJson(url: string,path: '/api/chat' | '/api/embed',body: { model: string; [key: string]: unknown },options: { interactive?: boolean; signal?: AbortSignal; timeoutMs: number;retryBudget?:{remaining:number} }): Promise<ModelResponse> {
   const interactive = options.interactive===true;
   const signal = AbortSignal.any([options.signal || new AbortController().signal,AbortSignal.timeout(interactive ? options.timeoutMs : 60*60*1000)]);
-  return ollamaQueue.run({ model: body.model,interactive,signal,cleanup: interactive ? undefined : () => releaseModel(url,body.model) },async activeSignal => {
-    for (const model of await models(url,activeSignal)) if (model!==body.model && ownedModels().has(model)) await releaseModel(url,model);
-    activeSignal.throwIfAborted();
-    const response = await fetch(url+path,{ method: 'POST',headers: { 'Content-Type': 'application/json' },body: JSON.stringify({ ...body,keep_alive: interactive ? '5m' : 0 }),signal: AbortSignal.any([activeSignal,AbortSignal.timeout(options.timeoutMs)]) });
-    if (!response.ok) throw Error('Ollama HTTP '+response.status);
-    const data = await response.json() as ModelResponse;
-    activeSignal.throwIfAborted(); return data;
-  });
+  for(let attempt=0;;attempt++) {
+    try {
+      return await ollamaQueue.run({ model: body.model,interactive,signal,cleanup: interactive ? undefined : () => releaseModel(url,body.model) },async activeSignal => {
+        for (const model of await models(url,activeSignal)) if (model!==body.model && ownedModels().has(model)) await releaseModel(url,model);
+        activeSignal.throwIfAborted();
+        const response = await fetch(url+path,{ method: 'POST',headers: { 'Content-Type': 'application/json' },body: JSON.stringify({ ...body,keep_alive: interactive ? '5m' : 0 }),signal: AbortSignal.any([activeSignal,AbortSignal.timeout(options.timeoutMs)]) });
+        if (!response.ok) throw await ollamaHttpError(response);
+        const data = await response.json() as ModelResponse;
+        activeSignal.throwIfAborted(); return data;
+      });
+    } catch(error) {
+      // Release ownership/cleanup before retrying so interactive work can take priority.
+      if(interactive||attempt||signal.aborted||!(error instanceof OllamaHttpError)||!error.retryable||!options.retryBudget||options.retryBudget.remaining<=0)throw error;
+      options.retryBudget.remaining--;
+      await delay(1000,undefined,{signal});
+    }
+  }
 }

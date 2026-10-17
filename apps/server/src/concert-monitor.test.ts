@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildConcertMonitor, concertMonitorCsv, type MonitorRun } from './concert-monitor.js';
+import { buildConcertMonitor, buildConcertCoverage, concertMonitorCsv, concertCoverageCsv, type MonitorRun } from './concert-monitor.js';
 import { primaryConcertSources } from './concert-types.js';
 import { discoverConcertSource, rotatingUrls } from './concert-discovery.js';
 import { accessChallenge, fetchConcertResource } from './concert-fetch.js';
@@ -8,6 +8,31 @@ import { accessChallenge, fetchConcertResource } from './concert-fetch.js';
 const start = Date.parse('2026-10-04T02:00:00Z');
 const hour = 3_600_000;
 const window = { id: 1, started_at: new Date(start), ends_at: new Date(start + 168 * hour) };
+
+test('Coverage retains explicit exclusions with source evidence; unexplained exclusions stay unresolved',()=>{
+  const evidence={title:'Foreign concert',country:'PH'};
+  const run:MonitorRun={source_name:'Ticketmelon',scheduled_at:new Date(start),started_at:new Date(start+1000),finished_at:new Date(start+2000),status:'success',items_seen:0,items_changed:0,error:null,metrics:{catalogComplete:true,catalogUrls:['https://example.com/foreign','https://example.com/unknown'],pages:[{url:'https://example.com/foreign',outcome:'excluded',reason:'outside_thailand',evidence},{url:'https://example.com/unknown',outcome:'excluded'}]}};
+  const report=buildConcertMonitor(window,[run],start+3000)!;
+  const source=report.coverage.find(item=>item.source==='Ticketmelon')!;
+  assert.equal((source as unknown as {excluded:number}).excluded,1);
+  assert.equal(source.empty,1);
+  assert.equal(source.verdict,'needs_review');
+  assert.equal(source.pages[0].outcome,'excluded');
+  assert.match(concertCoverageCsv(report),/outside_thailand/);
+  assert.match(concertCoverageCsv(report),/Foreign concert/);
+});
+
+test('Current coverage uses selected-page repairs without shrinking the catalog or changing the closed window',()=>{
+  const first:MonitorRun={source_name:'Ticketmelon',scheduled_at:new Date(start),started_at:new Date(start+1000),finished_at:new Date(start+2000),status:'success',items_seen:1,items_changed:0,error:null,ingestionMode:'scheduled',metrics:{catalogComplete:true,catalogUrls:['https://example.com/a','https://example.com/b'],pages:[{url:'https://example.com/a',outcome:'empty'},{url:'https://example.com/b',outcome:'parsed'}]}};
+  const ended=start+168*hour;
+  const repair:MonitorRun={...first,scheduled_at:new Date(ended+1000),started_at:new Date(ended+1000),finished_at:new Date(ended+2000),ingestionMode:'manual',metrics:{evidenceScope:'selected_pages',catalogComplete:false,catalogUrls:['https://example.com/a'],pages:[{url:'https://example.com/a',outcome:'excluded',reason:'outside_thailand',evidence:{title:'Outside',country:'SG'}}]}};
+  const current=buildConcertCoverage([first,repair],ended+3000).find(row=>row.source==='Ticketmelon')!;
+  assert.equal(current.catalog,2);assert.equal(current.parsed,1);assert.equal(current.excluded,1);
+  assert.equal(current.pages[0].ingestionMode,'manual');
+  const closed=buildConcertMonitor(window,[first,repair],ended+3000)!.coverage.find(row=>row.source==='Ticketmelon')!;
+  assert.equal(closed.empty,1);assert.equal(closed.excluded,0);
+  assert.match(concertCoverageCsv({coverage:[current]}),/manual/);
+});
 test('A new verification window preserves the earlier missing-hour verdict and its evidence', () => {
   const old = buildConcertMonitor(window,[],start+168*hour)!;
   const next = buildConcertMonitor({ id: 2,started_at: new Date(start+168*hour),ends_at: new Date(start+336*hour),reason: 'Worker continuity fix' },[],start+168*hour)!;

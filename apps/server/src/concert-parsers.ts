@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { ConcertEvent } from './concert-types.js';
 import { mapCoordinates } from './concert-location.js';
+import {announcedLiveMusic} from './concert-music.js';
 
 const object = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -34,6 +35,12 @@ export function eventpopUrl(value: string) {
   } catch { return null; }
 }
 
+/** Eventpop can publish its country in French even on an English event page. */
+export function eventpopThailandLocation(location: string) {
+  const country=location.split(',').at(-1)?.trim().normalize('NFD').replace(/\p{M}/gu,'').toLowerCase();
+  return ['thailand','thailande','ไทย','ประเทศไทย'].includes(country || '');
+}
+
 export function parseEventpopDetail(markup: string, page: string): ConcertEvent[] {
   const url = eventpopUrl(page);
   if (!url) return [];
@@ -42,7 +49,7 @@ export function parseEventpopDetail(markup: string, page: string): ConcertEvent[
   const category = $('.flex-xs-fill small').text() + $('#event-title').parent().find('small').text();
   if (!title || !music.test(title + ' ' + category)) return [];
   const location = $('meta[property="og:location"]').attr('content') || $('a[href*="google.com/maps"]').first().next('.pl-5').find('small').text().trim();
-  if (location && !/(?:thailand|ประเทศไทย|ไทย)\s*$/i.test(location)) return [];
+  if (location && !eventpopThailandLocation(location)) return [];
   const venue = $('a[href*="google.com/maps"] strong').first().text().trim() || location.split(',')[0]?.trim() || null;
   const city = location.split(',').length > 1 ? location.split(',').at(-2)?.trim() || null : null;
   const base: ConcertEvent = { title, url, startsAt: null, venue,venueLocation:{address:location || null,...mapCoordinates($('a[href*="google.com/maps"]').first().attr('href'))}, city, country: 'TH', currency: 'THB', image: eventpopPoster(markup,page), status: /cancelled|canceled|ยกเลิก/i.test(title) ? 'cancelled' : /postponed|เลื่อน/i.test(title) ? 'postponed' : 'scheduled', priceMin: null, priceMax: null };
@@ -114,7 +121,8 @@ export function parseTheConcertApi(value: unknown, roundValue?: unknown): Concer
   const venue = object(data.venue);
   const country = text(object(venue.country).name);
   const genres = (Array.isArray(data.attributes) ? data.attributes : []).filter(item => object(item).code === 'genre').flatMap(item => Array.isArray(object(item).items) ? object(item).items : []).map(item => text(object(item).name) || '');
-  if (!Number.isSafeInteger(data.id) || !text(data.name) || !/^(Thailand|TH|ประเทศไทย)$/i.test(country || '') || !genres.some(genre => music.test(genre))) return [];
+  const liveFanProgram=genres.some(genre=>/^Fan\s*Meeting$/i.test(genre))&&announcedLiveMusic(cheerio.load(text(data.description)||'').text());
+  if (!Number.isSafeInteger(data.id) || !text(data.name) || !/^(Thailand|TH|ประเทศไทย)$/i.test(country || '') || !(genres.some(genre => music.test(genre))||liveFanProgram)) return [];
   const children = object(object(roundValue).data).record;
   const rows = data.group_type === 'multiple' || data.group_type === 'group' || Array.isArray(children) ? (Array.isArray(children) ? children : []) : [data];
   const events: ConcertEvent[] = [];

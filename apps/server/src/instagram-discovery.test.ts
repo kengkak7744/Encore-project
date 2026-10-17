@@ -49,8 +49,8 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
   await client.connect();
   const before = { ...config };
   Object.assign(config, { instagramGraphToken: 'fixture-token', instagramGraphUserId: '123', instagramGraphTokenExpiresAt: '',
-    instagramProbeLimit: 5,instagramRequestSpacingSeconds: 60,instagramMinSpacingSeconds: 30,instagramAdaptivePacingEnabled: true,
-    instagramCheckIntervalMinutes: 45,instagramMediaMaxUsagePercent: 40,instagramDetailMaxUsagePercent: 60 });
+    instagramProbeLimit: 3,instagramRequestSpacingSeconds: 60,instagramMinSpacingSeconds: 30,instagramAdaptivePacingEnabled: true,
+    instagramCheckIntervalMinutes: 55,instagramMediaMaxUsagePercent: 40,instagramDetailMaxUsagePercent: 60 });
   try {
     await client.query('BEGIN');
     await client.query('CREATE SCHEMA instagram_sync_fixture');
@@ -67,7 +67,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       await client.query('TRUNCATE artists CASCADE');
       await client.query('TRUNCATE sync_runs');
       await client.query('DELETE FROM source_state');
-      await client.query("UPDATE instagram_sync_budget SET last_request_at=NULL,next_request_at=NULL,paused_until=NULL,pause_reason=NULL,usage='{}',usage_checked_at=NULL,consecutive_limits=0,spacing_seconds=60,healthy_responses=0,checks_since_media=0");
+      await client.query("UPDATE instagram_sync_budget SET last_request_at=NULL,next_request_at=NULL,paused_until=NULL,pause_reason=NULL,usage='{}',usage_checked_at=NULL,consecutive_limits=0,spacing_seconds=60,healthy_responses=0,checks_since_media=0,content_jobs_since_refresh=0");
     };
     const add = async (slug: string, known = true) => {
       const id = (await client.query("INSERT INTO artists(slug,name,kind) VALUES($1,$1,'solo') RETURNING id", [slug])).rows[0].id;
@@ -96,7 +96,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       assert.equal(await syncNews({ platform: 'instagram' }),1);
       assert.equal(fields.length,1); assert.ok(!fields[0].includes('children'));
       assert.ok(!fields[0].includes('caption'),'Scheduled discovery must not read captions during an identity probe');
-      assert.ok(fields[0].includes('media.limit(5)'),'Scheduled discovery reads five latest identities only');
+      assert.ok(fields[0].includes('media.limit(3)'),'Scheduled discovery reads three latest identities only');
       // No in-memory timestamp exists: another invocation simulates a fresh worker.
       assert.equal(await syncNews({ platform: 'instagram' }),0);
       assert.equal(await syncNews({ platform: 'instagram',artistSlug: 'artist-two' }),0);
@@ -109,8 +109,65 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       const stored = (await client.query("SELECT image_url,media_items FROM news_items ORDER BY source_url")).rows;
       assert.ok(stored.every(row => row.image_url === 'https://example.com/old.jpg' && row.media_items[0].url === 'https://example.com/old.jpg'));
     });
+    await t.test('100-account hourly headroom gives aged media and text a turn after five discovery slots',async()=>{
+      await reset();
+      await client.query(`INSERT INTO artists(slug,name,kind)
+        SELECT 'queue-'||n,'Queue '||n,'solo' FROM generate_series(0,99) n`);
+      await client.query(`INSERT INTO social_accounts(artist_id,platform,handle,url,verified_at,last_success_at,next_sync_at,last_media_refresh_at)
+        SELECT id,'instagram',replace(slug,'-','_'),'https://www.instagram.com/'||replace(slug,'-','_')||'/',now(),
+          now()-interval '56 minutes'+split_part(slug,'-',2)::int*interval '33 seconds',
+          now()-interval '1 minute'+split_part(slug,'-',2)::int*interval '33 seconds',now()
+        FROM artists`);
+      await client.query(`INSERT INTO instagram_media_jobs(account_id,reason,needs_text,requested_at)
+        SELECT id,'refresh',handle='queue_1',now()-interval '1 day' FROM social_accounts WHERE handle IN ('queue_0','queue_1')`);
+      await client.query(`INSERT INTO sync_runs(source_name,category,status,started_at,finished_at,metrics)
+        VALUES('INSTAGRAM','news','success',now()-interval '1 hour',now()-interval '1 hour','{"mode":"detail"}')`);
+      await client.query(`UPDATE instagram_sync_budget SET usage='{"callCount":38,"totalTime":33,"cpuTime":0}',usage_checked_at=now(),checks_since_media=5,spacing_seconds=30`);
+      const beforeDiscovery=(await client.query("SELECT last_success_at FROM social_accounts WHERE handle='queue_0'")).rows[0];
+      await syncNews({platform:'instagram'});
+      assert.equal(fields.length,1);
+      assert.ok(fields[0].includes('media_url'),'A due 55-minute probe must not override positive hourly headroom');
+      assert.ok(fields[0].includes('username(queue_0)'));
+      assert.deepEqual((await client.query("SELECT last_success_at FROM social_accounts WHERE handle='queue_0'")).rows[0],beforeDiscovery);
+      assert.equal((await client.query('SELECT checks_since_media FROM instagram_sync_budget')).rows[0].checks_since_media,0);
+      // Clearing request spacing is confined to this mocked, isolated database.
+      for(let i=0;i<5;i++) {
+        await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
+        await syncNews({platform:'instagram'});
+        assert.ok(!fields.at(-1)!.includes('caption'),'Discovery gets five slots between optional jobs');
+        // Keep another check due without advancing wall time inside the transaction.
+        await client.query("UPDATE social_accounts SET next_sync_at=now() WHERE handle='queue_'||$1::text",[i+1]);
+      }
+      await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
+      await syncNews({platform:'instagram'});
+      assert.equal(fields.length,7);
+      assert.ok(fields[6].includes('username(queue_1)'));
+      assert.ok(fields[6].includes('caption')&&fields[6].includes('media_url'),'New content discovered in the reserved slots can combine its text and media below 40%');
+    });
+    await t.test('new content completes before old refreshes, which retain their turn at measured 46/34 percent usage',async()=>{
+      await reset();const older=await add('older-media'),newer=await add('newer-text'),other=await add('other-media');
+      await client.query("UPDATE social_accounts SET last_success_at=now(),next_sync_at=now()+interval '55 minutes'");
+      await client.query(`INSERT INTO instagram_media_jobs(account_id,reason,needs_text,requested_at)
+        SELECT id,'refresh',false,now()-interval '1 day' FROM social_accounts WHERE artist_id=$1`,[older]);
+      await client.query(`INSERT INTO instagram_media_jobs(account_id,reason,needs_text,requested_at)
+        SELECT id,'new-post',true,now() FROM social_accounts WHERE artist_id=$1`,[newer]);
+      await client.query(`INSERT INTO instagram_media_jobs(account_id,reason,needs_text,requested_at)
+        SELECT id,'refresh',false,now()-interval '12 hours' FROM social_accounts WHERE artist_id=$1`,[other]);
+      await client.query(`INSERT INTO sync_runs(source_name,category,status,started_at,finished_at,metrics)
+        VALUES('INSTAGRAM','news','success',now()-interval '1 hour',now()-interval '1 hour','{"mode":"detail"}')`);
+      await client.query(`UPDATE instagram_sync_budget SET usage='{"callCount":46,"totalTime":34,"cpuTime":0}',usage_checked_at=now(),checks_since_media=5,spacing_seconds=30`);
+      await syncNews({platform:'instagram'});
+      assert.equal(fields.length,1);assert.ok(fields[0].includes('username(newer_text)'));
+      assert.ok(fields[0].includes('media_url')&&fields[0].includes('caption'));
+      assert.equal((await client.query('SELECT count(*)::int n FROM instagram_media_jobs')).rows[0].n,2);
+      assert.equal((await client.query("SELECT count(*)::int n FROM sync_runs WHERE metrics->>'mode'='discovery'")).rows[0].n,0,'Media must not pretend to be a discovery check');
+      await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL,checks_since_media=5');
+      await syncNews({platform:'instagram'});
+      assert.equal(fields.length,2);assert.ok(fields[1].includes('username(older_media)'));
+      assert.ok(fields[1].includes('media_url'),'The oldest refresh proceeds when no more content waits');
+    });
     await t.test('new posts queue a separate durable media job and preserve discovery timestamps', async () => {
-      await reset(); await add('artist-one',false);
+      await reset(); await add('artist-one',false); headerUsage=45;
       assert.equal(await syncNews({ platform: 'instagram' }),1);
       assert.equal(fields.length,1); assert.ok(!fields[0].includes('media_url'));
       assert.equal((await client.query('SELECT count(*)::int n FROM instagram_media_jobs')).rows[0].n,1);
@@ -119,6 +176,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       assert.equal(probeRun.status,'success'); assert.equal(probeRun.metrics.requests,1); assert.equal(probeRun.items_changed,1);
       assert.equal(probeRun.metrics.mode,'discovery'); assert.equal(probeRun.metrics.artistSlug,'artist-one'); assert.ok(probeRun.metrics.accountId);
       await syncNews({ platform: 'instagram' }); assert.equal(fields.length,1);
+      headerUsage=10; // The next request is still text-only under the stored 45% usage.
       await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
       assert.equal(await syncNews({ platform: 'instagram' }),1);
       assert.equal(fields.length,2); assert.ok(fields[1].includes('caption')); assert.ok(!fields[1].includes('media_url'));
@@ -199,7 +257,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       assert.equal((await client.query('SELECT needs_text FROM instagram_media_jobs')).rows[0].needs_text,false);
     });
     await t.test('unchecked or overdue discovery takes priority; background shares remain bounded',async () => {
-      await reset(); await add('artist-one',false); await syncNews({platform:'instagram'});
+      await reset(); headerUsage=45; await add('artist-one',false); await syncNews({platform:'instagram'});
       await add('artist-two',false);
       await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL,checks_since_media=100');
       await syncNews({platform:'instagram'});
@@ -234,7 +292,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       await client.query("UPDATE social_accounts SET next_sync_at=now() WHERE handle='artist_one'");
       await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
       await syncNews({platform:'instagram'});
-      account=(await client.query("SELECT instagram_failures,last_error,last_success_at,next_sync_at<now()+interval '46 minutes' AS recovered FROM social_accounts WHERE handle='artist_one'")).rows[0];
+      account=(await client.query("SELECT instagram_failures,last_error,last_success_at,next_sync_at<now()+interval '56 minutes' AS recovered FROM social_accounts WHERE handle='artist_one'")).rows[0];
       assert.equal(account.instagram_failures,0); assert.equal(account.last_error,null); assert.ok(account.last_success_at); assert.equal(account.recovered,true);
     });
     await t.test('legitimate empty captions or unavailable media do not create an endless enrichment loop',async () => {
@@ -243,7 +301,7 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
         await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL');
         await syncNews({platform:'instagram'});
       }
-      assert.equal(fields.length,3);
+      assert.equal(fields.length,2,'An empty caption/media response still completes the combined job once');
       const post=(await client.query('SELECT body,media_items,instagram_details_checked_at FROM news_items')).rows[0];
       assert.equal(post.body,null); assert.deepEqual(post.media_items,[]); assert.ok(post.instagram_details_checked_at);
       await client.query('UPDATE social_accounts SET next_sync_at=now()');
@@ -251,8 +309,8 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
       await syncNews({platform:'instagram'});
       assert.equal((await client.query('SELECT count(*)::int n FROM instagram_media_jobs')).rows[0].n,0);
     });
-    await t.test('100 known accounts rotate under an hour of simulated slot time with constantly low usage',async () => {
-      await reset();
+    await t.test('100 known accounts rotate under an hour of simulated slot time at observed 45% usage',async () => {
+      await reset(); headerUsage=45;
       for(let i=0;i<100;i++) await add('artist-'+String(i).padStart(3,'0'));
       let simulatedSeconds=0;
       for(let i=0;i<100;i++) {
@@ -261,10 +319,24 @@ test('Instagram ingestion keeps durable cadence, usage cooldown and media across
         await syncNews({platform:'instagram'});
       }
       assert.equal(fields.length,100); assert.equal(new Set(fields).size,100);
-      assert.ok(simulatedSeconds<3600,'Hypothetical low-usage slots must leave headroom below an hour');
+      assert.ok(simulatedSeconds+100*2<3600,'Observed moderate-usage slots must leave room for worker/response overhead');
       assert.equal((await client.query('SELECT spacing_seconds FROM instagram_sync_budget')).rows[0].spacing_seconds,30);
       assert.equal((await client.query('SELECT count(*)::int n FROM social_accounts WHERE last_checked_at IS NOT NULL')).rows[0].n,100);
       assert.equal((await client.query('SELECT count(*)::int n FROM instagram_media_jobs')).rows[0].n,0);
+    });
+    await t.test('global deadline capacity blocks manual enrichment even when its single account is fresh',async () => {
+      await reset(); await add('artist-one',false); await syncNews({platform:'instagram'});
+      for(let i=0;i<99;i++) await add('pending-'+String(i).padStart(3,'0'));
+      await client.query("UPDATE social_accounts SET last_success_at=now()-interval '10 minutes',last_checked_at=now()-interval '10 minutes',next_sync_at=now()+interval '45 minutes'");
+      await client.query("UPDATE social_accounts SET last_success_at=now(),last_checked_at=now() WHERE handle='artist_one'");
+      await client.query('UPDATE instagram_sync_budget SET next_request_at=NULL,spacing_seconds=30,checks_since_media=100');
+      const count=fields.length;
+      await syncNews({platform:'instagram',artistSlug:'artist-one'});
+      assert.equal(fields.length,count,'A manual request cannot consume a slot needed by earlier global deadlines');
+      await syncNews({platform:'instagram'});
+      assert.equal(fields.length,count+1,'A proactive discovery replaces optional enrichment when global deadlines are tight');
+      assert.ok(!fields.at(-1)!.includes('caption'));
+      assert.equal((await client.query('SELECT needs_text FROM instagram_media_jobs')).rows[0].needs_text,true);
     });
     await t.test('stale or missing headers retain safe request reservations and defer optional work',async () => {
       await reset(); await add('artist-one',false); missingHeaders=true;

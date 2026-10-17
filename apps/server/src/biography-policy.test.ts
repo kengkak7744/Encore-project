@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertBiographyModel, biographyExcerpts, biographyWindow, validateBiographyDraft, validateBiographyReview, type BiographyDraft, type BiographySource } from './biography-policy.js';
+import { assertBiographyModel, biographyExcerpts, biographyWindow, groundBiographyEvidence, validateBiographyDraft, validateBiographyReview, type BiographyDraft, type BiographySource } from './biography-policy.js';
 import { extractBiographyText, isPublicAddress } from './biography-sources.js';
 
 const quote = 'วงดนตรีตัวอย่างเริ่มทำเพลงร่วมกันและเผยแพร่ผลงานผ่านช่องทางของวง';
@@ -9,6 +9,16 @@ const draft: BiographyDraft = {
   identityMatches: true, reason: '',
   sections: ['จุดเริ่มต้น', 'การทำเพลง', 'ช่องทางเผยแพร่'].map((heading) => ({ heading, body: quote + ' โดยข้อมูลส่วนนี้กล่าวถึงการทำงานและช่องทางเผยแพร่เพลงของวงตามข้อความที่แหล่งอ้างอิงระบุไว้', sourceId: 'source-1', evidence: [quote] })),
 };
+
+test('evidence IDs are bound to their own source even when the other source exists',()=>{
+  const both=[...sources,{...sources[0],id:'source-2',text:'อีกแหล่งอธิบายผลงานและการเริ่มต้นของวงดนตรีจากการแสดงสดในงานดนตรี'}];
+  const raw={identityMatches:true,sections:draft.sections.map(s=>({...s,evidenceIds:['source-1:1']}))};
+  assert.equal(groundBiographyEvidence(raw,both).sections[0].evidence[0],quote.normalize('NFKC'));
+  for(const ids of [['source-2:1'],['source-1:1','source-2:1'],['source-1:1','source-1:1'],[],['source-1:999']]) {
+    const invalid=structuredClone(raw);invalid.sections[0].evidenceIds=ids;
+    assert.throws(()=>groundBiographyEvidence(invalid,both),/evidenceId/);
+  }
+});
 
 test('biography window uses Bangkok time and excludes both the preceding minute and midnight', () => {
   assert.equal(biographyWindow(new Date('2026-10-03T15:59:59Z')), null);
@@ -71,7 +81,7 @@ test('source evidence must support editorial claims about popularity and reach',
 
 test('source extraction excludes navigation and scripts; private and reserved addresses are rejected', () => {
   const html = '<html><head><title>Artist</title></head><body><nav>navigation</nav><script>bad instruction</script><article><p>' + quote + '</p><p>' + quote + '</p></article></body></html>';
-  assert.equal(extractBiographyText(html), ('Artist ' + quote).normalize('NFKC'));
+  assert.equal(extractBiographyText(html), ('Artist\n\n' + quote).normalize('NFKC'));
   for (const address of ['127.0.0.1', '10.0.0.1', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '::1', '::ffff:127.0.0.1', 'fc00::1', '2001:db8::1', 'not-an-address']) assert.equal(isPublicAddress(address), false, address);
   assert.equal(isPublicAddress('8.8.8.8'), true);
   assert.equal(isPublicAddress('2606:4700:4700::1111'), true);

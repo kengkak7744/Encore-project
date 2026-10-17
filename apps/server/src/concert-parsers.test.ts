@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseEventpop, parseTheConcert, parseTicketmelon } from './ingest.js';
+import { parseEventpop, parseEventpopMeta, parseTheConcert, parseTicketmelon } from './ingest.js';
 import { eventpopUrl, eventpopPoster, parseTheConcertApi } from './concert-parsers.js';
 
 test('Eventpop uses the real full poster when OG contains a placeholder and never substitutes unrelated attachments', () => {
@@ -34,6 +34,25 @@ test('Eventpop keeps exact multi-day times, current satang prices and unknown pr
   assert.equal(parseEventpop(markup.replace('[89900,140000]', '[null,null]'), 'https://www.eventpop.me/e/159926')[0].priceMin, null);
   assert.equal(parseEventpop(markup.replace('Thailand', 'Singapore'), 'https://www.eventpop.me/e/159926').length, 0);
   assert.equal(eventpopUrl('https://www.eventpop.me/e/159926/changed-slug'), eventpopUrl(event.url));
+});
+
+test('Eventpop recognizes the explicit French Thailand country label without accepting foreign or substring matches', () => {
+  const markup = (country: string) => `<meta property="og:title" content="Waterfall Music Festival"><meta property="og:location" content="Waterfall Festival, Surat Thani, ${country}"><meta property="og:start_time" content="2026-10-29T21:00:00+07:00"><meta property="og:end_time" content="2026-10-30T07:00:00+07:00"><div id="event-title"><h2>Waterfall Music Festival</h2></div><a class="event-date-range"><strong>29 Oct 2026 21:00 - 30 Oct 2026 07:00</strong></a>`;
+  const url = 'https://www.eventpop.me/e/174976';
+  for (const country of ['Thaïlande','Thailande','THAILAND','ประเทศไทย']) {
+    for (const parse of [parseEventpop,parseEventpopMeta]) {
+      const rows = parse(markup(country),url);
+      assert.equal(rows.length,1,country);
+      assert.equal(rows[0].country,'TH');
+      assert.equal(rows[0].startsAt,'2026-10-29T14:00:00.000Z');
+      assert.equal(rows[0].endsAt,'2026-10-30T00:00:00.000Z');
+      assert.ok(rows[0].priceMin==null);
+    }
+  }
+  for (const country of ['Singapore','New Thailand','Not Thaïlande','Thailand, France','France']) {
+    assert.equal(parseEventpop(markup(country),url).length,0,country);
+    assert.equal(parseEventpopMeta(markup(country),url).length,0,country);
+  }
 });
 
 test('The Concert legacy markup no longer restricts valid Thai music to central provinces', () => {

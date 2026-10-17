@@ -37,6 +37,29 @@ test('Ticketmelon embedded event data yields Thai music date with unknown price'
   assert.equal(parseTicketmelon(markup.replace('Bangkok, Thailand', 'Singapore'), url).length, 0);
 });
 
+test('Ticketmelon accepts localized Thai country evidence without importing foreign or ambiguous venues',()=>{
+  const event={name:'Thai festival',show_starttime:Date.parse('2026-11-10T18:00:00+07:00'),categories:['Music'],venue:{name:'Festival Hall',formatted_address:'Surat Thani, Thaïlande'},currency:{code:'THB'},status:'publish'};
+  const parse=(venue:Record<string,unknown>)=>parseTicketmelon('<script id="__NEXT_DATA__">'+JSON.stringify({props:{pageProps:{event:{...event,venue}}}})+'</script>','https://www.ticketmelon.com/fixture/localized');
+  assert.equal(parse(event.venue).length,1);
+  assert.equal(parse({name:'Hall',address_components:[{short_name:'TH',long_name:'ประเทศไทย',types:['country']}]}).length,1);
+  assert.equal(parse({...event.venue,formatted_address:'Thai theatre, Singapore',address_components:[{short_name:'SG',long_name:'Singapore',types:['country']}]}).length,0);
+  assert.equal(parse({...event.venue,formatted_address:'Thailand road, unknown place'}).length,0);
+  assert.equal(parse({...event.venue,formatted_address:'Surat Thani, Thaïlande',address_components:[{short_name:'SG',long_name:'Singapore',types:['country']}]}).length,0);
+});
+
+test('Ticketmelon reads explicitly announced live music and DJ programs in Nightlife without importing generic parties',()=>{
+  const event={name:'JOEL DAVID & HIS BAND',description:'Joél Davíd and his live band perform original soul rock.',show_starttime:Date.parse('2026-11-08T17:00:00+07:00'),categories:['Nightlife','Fashion'],venue:{name:'Bangkok Island',formatted_address:'Bangkok, Thaïlande',address_components:[{short_name:'TH',types:['country']}]},currency:{code:'THB'},status:'publish'};
+  const parse=(changes:Record<string,unknown>)=>parseTicketmelon('<script id="__NEXT_DATA__">'+JSON.stringify({props:{pageProps:{event:{...event,...changes}}}})+'</script>','https://www.ticketmelon.com/fixture/nightlife');
+  assert.equal(parse({}).length,1);
+  assert.equal(parse({name:'ENERGY WAVE',description:'Hip-Hop and Drill. DJ LINEUP: FALANG MAC.'}).length,1);
+  assert.equal(parse({name:'Fan festival',description:'Live covers from every album by two bands.'}).length,1);
+  assert.equal(parse({name:'Costume party',description:'Enjoy lights, drinks and a costume contest.'}).length,0);
+  assert.equal(parse({name:'Board game night',description:'Bring your friends and enjoy music.',categories:['Hobbies','Nightlife']}).length,0);
+  assert.equal(parse({name:'Magic show',description:'Grand illusion with live music in the background.',categories:['Nightlife','Arts','Film & Media']}).length,0);
+  assert.equal(parse({name:'Lantern ceremony',description:'Cultural showcases and live music.',categories:['Nightlife','Arts','Travel & Outdoor']}).length,0);
+  assert.equal(parse({venue:{name:'Foreign Hall',formatted_address:'Singapore'}}).length,0);
+});
+
 test('JSON-LD event retains cancellation and source metadata', () => {
   const body = `<script type="application/ld+json">{"@type":"MusicEvent","name":"Example Live","startDate":"2027-01-20T19:00:00+07:00","eventStatus":"https://schema.org/EventCancelled","location":{"name":"Hall","address":{"addressLocality":"Bangkok","addressCountry":"TH"}},"offers":{"lowPrice":500,"highPrice":1200,"priceCurrency":"THB"}}</script>`;
   const events = parseEvents(body, 'https://example.com/event');

@@ -1,5 +1,232 @@
 # Encore — Artist Tracking and Fan Assistant
 
+## TTM Screening Confirmed in Scheduled Runs — 17 Oct 2026, 11:19 Bangkok
+
+Verified nine completed automatic TTM runs after the 02:07 rollout. The **08:00 run excluded HALFWAY SCREENING EP.8 and Khon: Sida** with source-title/path evidence, zero sessions and no fallback. All six archived imports remain absent from the active catalog; four have no new detail attempt because they are no longer listed.
+
+The **original 21 failed URLs** now have latest outcomes of **10 parsed / two excluded / nine failed**; all were attempted. The nine failures each succeeded earlier, then encountered verification again. Across the **current 45-page catalog**, latest scheduled evidence remains **23 parsed / one excluded / 21 failed**: nine original failures plus 12 other URLs. Combined zero pending does not establish hourly detail freshness or complete data. Mr. Fanboy EP.11 still needs program evidence.
+
+Read-only assertions and both original seven-day archive hashes passed. No source/API/model requests, production changes, new setup or deployment were needed. [Per-URL outcomes, screening evidence and remaining checks](docs/ttm-scheduled-followup-2026-10-17.md).
+
+## Biography Quality Fixes Before Tonight — 17 Oct 2026, 03:18 Bangkok
+
+Fixed birth/event years leaking into affiliation context, equivalent label wording and unsupported character-name translations. GMMTV extraction preserves cast rows and published Thai role paragraphs; dated documents precede undated profiles. Factual-review repair now supplies evidence IDs/instructions for each section, including short drafts. Missing affiliation dates remain unknown. **84 focused tests**, typecheck, Docker build and compiled checks passed.
+
+Queued **Pae 5 / William 7 / Fourth 11 / Gemini 12 / PEAKSayaa! 13** for **17 Oct 23:00–18 Oct 00:00 Bangkok**; retained all old biography sections/archives. Deployed only the biography worker at 03:18, preserving other services and the seven-day concert archive. The same local 27B model, shared GPU queue, ten attempts/night and one factual repair remain. No migration or new credentials/settings are needed.
+
+At **03:33**, all **five native Ollama previews / 17 sections** pass validation, model review and exact-quotation checks, with the requested corrections present. Coverage remains **69/100; 31 missing** because previews do not publish. A detached read-only observer is waiting to capture the five **actual nightly outcomes**. Publication and complete factual acceptance remain pending, including production-credit clarity in PEAKSayaa!'s text. [Evidence, repairs, verification and nightly status](docs/biography-quality-fixes-2026-10-17.md).
+
+## Instagram Account Errors and Queue Scheduling — 17 Oct 2026, 02:38 Bangkok
+
+Reproduced and fixed an unavailable account resetting global pacing, new content waiting behind periodic media refreshes, and separate caption/media reads when one guarded request suffices. Eligible content gets up to **two attempts before a refresh turn**, with a persistent counter; failed attempts count too. Combined reads use the existing media guard, while text-only work remains available under its own guard. Account backoff, discovery deadline planning and **40/60/75% ceilings remain unchanged**.
+
+**49 focused tests passed, zero failures/skips**; workspace typecheck, Docker API/worker builds, compiled checks and protected localhost monitor checks passed. Applied migration **031** and restarted only API/worker at02:38, preserving existing queues, accounts, biography/user records and the original seven-day archive. Startup applies the numbered migration automatically; no new credentials or environment variables are needed.
+
+The02:42 observation still has **99/100 fresh, zero text/49 media jobs**, including11 content and38 refresh requests, with an oldest age of12.67hours. Nine automatic discovery checks succeeded; media remains blocked by Total time44%, above its40% ceiling. Live queue-age improvement is **not yet verified**. HERS keeps its18Oct20:13 retry. [Causes, scheduling rules, tests, rollout and remaining acceptance](docs/instagram-scheduling-fixes-2026-10-17.md).
+
+## Instagram 24-hour Audit — 17 Oct 2026, 02:13 Bangkok
+
+Audited the preceding 24 hours from stored records: **2,511 successful discovery / 56 text / 148 media checks**, with one failed HERS retry. HERS retried on **16 Oct20:13**, returned HTTP400(110/2207013), and retains its normal **18 Oct20:13** retry/backoff.
+
+The original62 media jobs all completed, but **queue age is not decreasing continuously**. Waiting media rose to90 before falling to45; the current oldest/median request ages are **12.21/10.06 hours**, with zero text jobs and11 media jobs marked new-post. Discovery is fresh for99/100 at the snapshot, but67 recorded intervals exceeded60minutes, at most63.87minutes.
+
+Media/text/pause ceilings remain **40/60/75%**, with no recorded enrichment violation or forced Graph call. Runtime caps/backoff were unchanged. This read-only audit updates documentation and exports hourly/queue/account evidence; it requires no new setup, credentials, migration or deployment. [Retry, queue cohorts, pacing observations and remaining acceptance work](docs/instagram-24h-audit-2026-10-17.md).
+
+## Scheduled Concert Verification and Screening Repair — 17 Oct 2026, 02:07 Bangkok
+
+Confirmed **21 automatic reads each** for UnKonscious/Zamna across 34 hourly cycles after the 15 October repairs, including the completed 02:00 run. Both retain their concert identities, source links and unknown prices; Zamna remains USD. Catalog rotation means these pages were not read every hour.
+
+Fixed TTM's missed `SCREENING EP.8` classification across review, JSON-LD/physical parsing, persistence and coverage evidence. Migration **030** archives complete evidence before removing six old non-music imports, protecting admin edits, other-provider sources and attendance/trip/review records. Applied locally to API/worker at 02:07; startup applies the numbered migration automatically. No new credentials or environment settings are required.
+
+**77 unique focused tests verified**, workspace typecheck, API/worker builds, compiled-runtime checks and local Chrome verification passed. Rollout preserved 289 cycles, both windows, IG state, biographies, user data and the original seven-day archive. TTM still has **21 failed detail pages**; Mr. Fanboy EP.11 needs program evidence. The first automatic TTM run after this rollout remains pending; historical page outcomes were retained. [Automatic evidence, migration safeguards and remaining coverage](docs/concert-scheduled-audit-2026-10-17.md).
+
+## Actual Biography Night Audit — 17 Oct 2026, 01:43 Bangkok
+
+Audited both scheduled nights: **15 Oct: ten attempts, five published/five withheld; 16 Oct: ten attempts, three published/seven withheld; zero failed jobs**. Six new biographies and corrections for Valentina/TeyaTaye bring coverage to **69/100, with 31 missing**. TeyaTaye now separates the two song meanings correctly. William and Pae remain pending, with their published text preserved.
+
+All **26 published sections** match stored drafts/evidence/citations and pass existing validation; Chrome verified 33 visible sections across ten profiles. Factual acceptance remains open: Fourth's character name is mistranslated, and offline replay exposed affiliation-date checks that accept Gemini's birth year as context and miss equivalent PEAKSayaa! label wording. William still mixes claims across selected evidence; dated membership and promotional wording also require care.
+
+Both nights recorded **44 completed/zero failed biography GPU requests**, with no HTTP 500 in the retained native POST completions. All requests had background priority; this does not establish a new concurrent interactive-chat test or a permanent runtime fix. This audit changed documentation only, with no new setup, migration, model/Graph calls or deployment. [Per-profile results, primary sources, reproducible findings and verification](docs/biography-night-audit-2026-10-17.md).
+
+## Next Priorities — 17 Oct 2026
+
+1. **Verify IG scheduling after the02:38 fix:** observe content/content/refresh turns and combined reads when usage permits, then audit24hours of actual queue ages and per-account gaps. Retain40/60/75% ceilings, cooldown and account backoff. At02:42,49 media jobs remain blocked by Total time44%; the oldest request is12.67hours old. The fix passes regression; shorter real waits and sustained hourly freshness are still unaccepted. Observe HERS's18October20:13 retry normally.
+2. **Verify the five queued biography corrections tonight:** quality fixes are deployed; Pae/William/Fourth/Gemini/PEAKSayaa! revisions await17Oct23:00–18Oct00:00. Inspect actual publications and claims against their selected evidence, including withheld jobs. The observer records mechanical outcomes; factual review and concurrent interactive-chat acceptance remain separate.69/100 biographies are present;31 are missing.
+3. **Continue TTM access and program verification:** screening exclusions are confirmed from the 08:00 automatic run. At 17 October 11:19, the original 21 failures are 10 parsed / two excluded / nine failed; the current catalog still has 21 failures, including 12 other URLs. Track recoveries/regressions by URL through normal rotation, investigate Mr. Fanboy EP.11's program and retain the original seven-day archive. [Latest scheduled evidence](docs/ttm-scheduled-followup-2026-10-17.md).
+4. Receive/review the actual Figma file if available, then map the approved screens to existing routes and mobile/error states. Continue licensed-image and dated membership evidence work alongside implementation.
+
+Biography coverage was measured on **17 October: 69/100**, scheduled TTM outcomes at11:19 and Instagram at02:42 after its queue rollout. Image and membership figures remain the **15 October** observations:71/100 licensed illustrations and74 membership caveat profiles. The actual Figma design has not been verified. [Previous combined audit](docs/plan-followup-2026-10-15.md), [acceptance work](docs/acceptance.md).
+
+The IG and biography items include their17October fixes and dated observations; the other priorities retain their audit results. Actual nightly biography publications remain pending.
+
+## Biography, Instagram and Data Follow-up — 15 Oct 2026, 16:17 Bangkok
+
+Audited the actual14Oct night: **ten attempts, four publications, six withheld, zero failed jobs**. Rooftop's correction completed; William, Lego and Nanon bring biographies to **63/100**. Fixed duplicate-heading repair feedback. Queued William's formation-year/performer-credit correction and retained TeyaTaye's pending correction for **15 Oct23:00–16 Oct00:00**; published biographies remain unchanged. A native CUDA initialization HTTP500 recovered through the bounded retry, without establishing a permanent runtime fix.
+
+After the IG queue fix, records through15Oct15:41 show **43 text/185 media completions** and none of the original82 request timestamps still outstanding. Accessible accounts' measured gaps outside request interruptions stayed below60minutes;198 gaps overlapping interruptions still prevent sustained hourly acceptance. At16:10: **99/100 fresh, zero text/78 media**, with existing ceilings/backoff unchanged. HERS remains unavailable.
+
+Recovered **UnKonscious and Zamna VVIP**, recorded12 evidenced exclusions and confirmed RBSO's21Oct19:30 time from its organizer. Unknown venues/prices remain unknown; USD is retained without conversion, and changed currencies cannot relabel old amounts. TTM still has21 unreadable detail pages. Added mints' explicitly Tonhon-only licensed illustration: **71/100 images**, plus11 dated claims for nine profiles and12 official biography links;74 membership caveats remain.
+
+**126 unique focused tests verified**, with the corrected membership assertion passing its focused rerun; typecheck, server/Next.js/Docker builds and local Chrome checks passed. Local rollout preserved255 concert cycles, both windows, IG state,70 biography runs, seven revisions,205 sections and the original seven-day archive. No migration or new credentials are required. [Audit, applied repairs, verification details and remaining work](docs/plan-followup-2026-10-15.md).
+
+## Next Priorities — 15 Oct 2026
+
+1. Audit the actual **14 Oct23:00–15 Oct00:00** biography run: verify TeyaTaye's correction, draft/source consistency, publication decisions and any recurring Ollama HTTP500. The latest documented biography count is **60/100 as of 14 Oct02:37**; a new count requires a database audit.
+2. Review recorded Instagram runs and hourly snapshots since the 14 Oct queue fix: enrichment completions, oldest pending jobs, discovery gaps, usage deferrals and HERS/Pae Arak recovery. Use database-only reports and retain existing usage ceilings/backoff. The **98/100 fresh / zero text / 78 media** result is the **14 Oct02:59** observation, not a current measurement.
+3. Receive the Figma design scheduled for **15 Oct** and compare it against the existing route/state checklist, including mobile layouts, empty/error states and admin flows. The actual design file has not yet been verified.
+4. Continue unresolved concert page coverage, licensed artist images and membership/affiliation evidence. Preserve the completed seven-day archive and distinguish cadence acceptance from source completeness.
+
+This checkpoint updates priorities only; no new database/provider/model measurements, runtime changes or tests were performed. [Acceptance work](docs/acceptance.md), [Figma handoff](docs/figma-handoff-2026-10-15.md).
+
+## Instagram Queue Starvation Fix — 14 Oct 2026
+
+Removed a reproduced scheduling conflict: discovery due at 55 minutes no longer blocks text/media when the existing planner reserves enough time for **every eligible account's 60-minute deadline**. Five discovery slots between enrichment requests when discovery is waiting, alternating text/media lanes and oldest-first ordering remain. The admin monitor uses the same spacing calculation and exposes queue scheduling diagnostics without Graph calls.
+
+**All usage ceilings, persistent spacing, provider cooldown and account/job backoff remain unchanged.** No forced Graph reads or historical pagination were added. **32 tests passed, zero failures/skips**; typecheck, server and Docker API/worker builds passed. Local rollout at **02:52:47 Bangkok** preserved 226 concert cycles, both windows, Instagram state/queues and biography work. No migrations or new configuration are needed.
+
+By **02:59**, normal scheduling completed **ten discovery checks and three media jobs** (MORVASU, Nanon, PEAKSAYAA), reducing media jobs from **81 at rollout to 78**, with zero text jobs pending and **98/100 fresh**. The observed discovery gaps were at most 55.36 minutes. Total time reached **44%**, correctly deferring media above its 40% ceiling while discovery continued. HERS and Pae Arak retain their existing backoff. The remaining queue and sustained hourly freshness are still open acceptance work. [Cause, scheduling rules, test evidence and live observation](docs/instagram-queue-fairness-2026-10-14.md).
+
+## Bounded Ollama Recovery and TeyaTaye Wording — 14 Oct 2026, 02:37 Bangkok
+
+Biographies now share **one transient HTTP retry per complete job**, covering draft, repair and factual review. Retries release GPU ownership and re-enter the queue; interactive requests, aborts, 4xx and identified memory/schema errors are not retried. Bounded, redacted Ollama error details are retained for diagnosis. Replaying Pae/Marc produced four real HTTP200 responses, so **the original HTTP500 cause remains unconfirmed**; this is tested recovery, not proof of a permanent root-cause fix.
+
+Confirmed TeyaTaye's song-theme mix-up against the article's separate paragraphs. Sources/excerpts now preserve those boundaries, and revision reasons reach the generator. A real local AI preview correctly separates the two songs and passes draft/review checks. **Revision 6 is queued for 14 Oct, 23:00–00:00 with all four old sections archived; published text has not changed yet.** There remain 60/100 biographies and four pending corrections including TeyaTaye.
+
+**79 tests passed, zero failures/skips**; typecheck, server/Docker builds and compiled-runtime checks passed. Only the biography worker restarted at 02:37:34, preserving 226 concert cycles, both windows, 60 biography runs, six revision requests, 194 published sections and the original concert archive. No migrations or new credentials are required. [Fixes, live replay/preview evidence and remaining acceptance work](docs/ollama-teyataye-fixes-2026-10-14.md).
+
+## Actual Biography Night Results — 14 Oct 2026, 02:14 Bangkok
+
+The **13 Oct 23:00–00:00** run made ten attempts: **four published, four rejected and two failed**. TITI and WHAL & DOLPH corrections completed; PONCHET and TeyaTaye received new biographies. There are now **60/100 profiles with biographies, 40 missing**, and three pending corrections (Rooftop, Valentina Ploy, Pae Arak). All attempts ended by 23:28 within the normal cap/window.
+
+All **14 published sections** match their stored drafts, sources and registered citations, pass deterministic/model review and render correctly in Chrome. Primary-source review identified a remaining interpretation concern in TeyaTaye's song-theme wording; publication does not close factual-quality acceptance. Pae and Marc encountered **Ollama HTTP 500**: GPU records show 19 completed / 2 failed biography requests, with the internal cause still unconfirmed. Background 8B work does not establish a concurrent chat test.
+
+This audit changed documentation only: no model/Graph calls, publication edits, retries or restarts. Pending revision text and the original concert archive remain intact. The previous 65-test regression was not rerun. [Per-profile results, source checks, browser evidence and remaining issues](docs/biography-night-audit-2026-10-14.md).
+
+## Biography Generation Fixes — 13 Oct 2026, 22:58 Bangkok
+
+Audited the 12 Oct night: ten attempts, **Mirrr published with three sections; 58/100 biographies, 42 missing**. Five corrections remain pending. Added per-source date guidance, repair diagnostics for every failing section and factual review restricted to each section's selected evidence. Fixed a reproduced validator error that rejected an explicitly evidenced year followed by a comma. Decimal/grouped numbers, unsupported event years and undated volatile claims remain restricted.
+
+**65 tests passed, zero failures/skips**, including isolated worker tests; typecheck, server/Docker builds and Mirrr browser checks passed. Unchanged-draft replay clears Valentina's year-punctuation false positive; factual review and publication remain pending. A real Ollama preview exposed the bug but still lacked dated signing context after repair, so it is not an accepted biography. No saved draft was published retroactively.
+
+Deployed only the biography worker at **22:58:07**, preserving 222 concert-cycle identities, both monitoring windows, 50 biography runs, five revisions, 187 published sections and the original final archive. The normal **23:00–00:00 / ten attempts / one repair** limits remain. No new credentials or migrations are required. Tonight's actual publication results still need verification. [Audit, fixes, live-preview limits and evidence](docs/biography-fixes-2026-10-13.md).
+
+## Biography, Instagram and Scheduled Concert Audit — 12 Oct 2026, 20:36 Bangkok
+
+Audited the actual **11 Oct 23:00–00:00** biography run: ten attempts, **two publications (HENS/HERS, seven sections)**, now **57/100 profiles with biographies, 43 missing**. Text, citations, stored evidence and publication windows match; primary articles support the published summaries with historical context. Five correction requests remain pending and their original text is unchanged. Eight drafts were withheld for unsupported dates, metrics, affiliation or temporal claims. All 21 biography GPU requests completed; background 8B requests later in the window do not establish a new concurrent chat test.
+
+Instagram archives and two database-only samples show hourly freshness remains unaccepted: **71/100 at 20:29 → 77/100 at 20:36**, with calls/time/CPU **30/59/0%** in the latest sample. MEAN and Tonhon recovered; HERS still returns HTTP 400 (110/2207013), with its next retry **14 Oct, 18:36**. There are 26 text and 73 media jobs waiting for discovery priority/usage headroom, and no text/media completions in the last hour. No Graph calls or backoff resets were forced.
+
+Four completed scheduled cycles after the repair independently re-read **all 13 new Ticketmelon source URLs plus The Concert's MCR source**. Golden Show still awaits its scheduled cursor revisit; its saved rounds remain available. Latest 24-hour coverage: **TTM 26 parsed / 2 excluded / 17 failed; Eventpop 47 parsed / 1 excluded / 8 unresolved; The Concert 34 parsed / 1 excluded; Ticketmelon 219 parsed / 336 excluded / 3 unresolved / 1 failed / 1 pending**. The changed catalogs contain 30 unresolved pages; completeness remains open. The original seven-day archive and SHA256 still match.
+
+Read-only audit assertions and local Chrome checks passed; this audit adds no runtime changes, credentials or migrations and does not rerun the previous 72-test regression. [Measured results, primary citations, queue evidence and remaining work](docs/three-checks-2026-10-12.md).
+
+## Concert Coverage Repairs — 12 Oct 2026, 08:34 Bangkok
+
+Recovered **13 Ticketmelon source URLs** and added The Concert's MCR Fan Festival source to the same concert. Fixed localized venue-country parsing, narrowly recognized announced live/DJ programs and added cross-provider deduplication using matching titles, times and source coordinates. Unknown prices remain unknown. Classified **335 pages as outside scope with source evidence**; these are not newly imported concerts.
+
+Current 24-hour coverage, including selected manual repairs: **TTM 27 parsed / 3 excluded / 16 failed; Eventpop 47 parsed / 1 excluded / 8 unresolved; The Concert 34 parsed / 1 excluded; Ticketmelon 216 parsed / 330 excluded / 3 unresolved / 1 failed**. TTM access challenges, seven Eventpop pages dated 2126 and one unverified venue, three unverified Ticketmelon locations and one waiting room remain open. Coverage is not fully accepted.
+
+The `/status` coverage selector now defaults to the latest 24 hours, refreshes every 60 seconds and exposes per-URL reasons, evidence and CSV. `GET /api/status/concert-coverage` and `/api/status/concert-coverage.csv` read the database only. Selected-page manual checks cannot replace the complete catalog. Runs with unresolved/unchecked pages now report `partial`. The original **168-hour/672-check seven-day archive, its SHA256 and historical verdict remain unchanged**.
+
+**72 focused tests passed, zero failures/skips**; typecheck, server/Next.js builds and Docker builds passed. Chrome verified repaired sources/posters, shared MCR identity, CSV and 1440/390/320px layouts. Local deployment preserved 192 cycle identities, both windows, Instagram budget/account state and five biography revisions. No migration or new credentials are required. [Repair evidence, source links and remaining coverage work](docs/concert-coverage-fixes-2026-10-12.md).
+
+## Seven-Day Concert Report Completed — 12 Oct 2026, 08:01 Bangkok
+
+Verified the original **5Oct06:00–12Oct06:00 Bangkok** window: **168/168 hours and672/672 completed source checks**. Cadence passed with no missing, unfinished or late checks. The automatic archive was created at06:00:05; its stored SHA256 and independently recomputed acceptance summary match. The original archive remains unchanged.
+
+Source completeness remains **needs_review**:429 successful runs and243 partial runs. Final scheduled page coverage: TTM25parsed/21failed (17listing fallbacks); Eventpop47parsed/9empty; The Concert33parsed/2empty; Ticketmelon203parsed/346empty/1failed. All final catalogs have zero pending pages, but parsed/empty outcomes do not establish factual completeness. The243 issues count partial source/hour runs, not missing concerts.
+
+Final evidence is `.local/concert-reports/concert-window2-final.json`, with matching `.md`, `.csv` and `.coverage.csv` exports. Recheck offline with `node --import tsx .local/verify-concert-final-2026-10-12.mts`; verification is recorded in `.local/concert-final-review-2026-10-12/verification.json`. No provider calls, database changes or service restarts were needed. Normal ingestion continues; subsequent runs do not change the finished window. [Final results, acceptance decisions and remaining source work](docs/concert-seven-day-final-2026-10-12.md).
+
+## Concert Completeness and Artist Evidence — 11 Oct 2026, 17:06 Bangkok
+
+Recovered **nine Eventpop concerts** rejected because their country was written `Thaïlande`; both parsers now recognize this explicit Thai country token. Corrected Golden Show's prices and **four current rounds**, clearing unsupported round end times while retaining the labelled historical performance. Ticketmelon's waiting-room redirects now produce an explicit unavailable reason without entering the queue. Existing administrator edits and organizer precedence remain protected.
+
+Reconciled the captured ThaiTicketMajor listing with the database: all **41 eligible concert pages / 62 explicit date rows** are represented. Detail access remains partial; this does not establish full coverage. At17:06, monitoring recorded **155/168 elapsed hours, 620/620 attempts**, zero cadence issues and217 source-result issues; the newest cycle was still running. Its normal Eventpop run independently improved from38 to **47 parsed pages / nine empty**, confirming the parser fix. Manual repair does not rewrite scheduled history. The original end remains **12Oct06:00 Bangkok**; the final archive is pending.
+
+Added licensed images for **GAWIN, MOBYE and LANDOKMAI**: **70/100 images, 30 pending**, with visible historical/single-member captions. Added **44 initial membership/affiliation reviews**, reaching100/100 reviewed; **74 retain unresolved caveats**, including ten GMMTV management claims explicitly marked unclear. Biographies remain55/100 and individual popularity observations100/100. Updated the Figma handoff/checklist with11 new reference captures; the actual15Oct file remains pending.
+
+**78 targeted tests passed, zero failures/skips**; typecheck, server and Docker API/worker builds passed. Chrome passed57 data checks with no page errors/mobile overflow. Local deployment at16:57 preserved all176 existing cycle identities, both windows, Instagram account/budget state and five biography revisions. No new credentials, migration or setup steps are required; no Graph/model calls were forced. [Changes, primary evidence and remaining work](docs/concert-artist-followup-2026-10-11.md).
+
+## Instagram, Artist Evidence and Figma Preparation — 11 Oct 2026
+
+Corrected HERS to `hers_bandofficial` from its official Whattheduck MV and MEAN to `meanband.official` from LOVEiS's published release descriptions. Preserved account IDs, errors/history and scheduled backoff: HERS/MEAN retry on **12Oct13:03/13:04 Bangkok**. Neither corrected handle has been probed yet. Tonhon previously succeeded but its three latest attempts returned400(110/2207013); retain its handle and retry **11Oct21:53** without inferring deletion or account type.
+
+**Admin → Data ingestion / API** now shows per-account text/media queues, waiting reasons, queue age, recorded retry times and completions in the last hour. Reports read the database, refresh every60seconds while open and add no Graph calls. At10:06: **97/100 fresh**, one text/58media jobs pending, six media jobs completed in the previous hour, calls/time/CPU40/39/0%. Historical logs after10Oct20:09 still contain39discovery gaps over60minutes, maximum61.30; sustained hourly coverage remains unaccepted. Existing usage ceilings and pacing remain in force.
+
+Added licensed historical images for **BLUE PONGTIWAT, LADIIPRANG and TONHON**, with original publisher grants, credits and captions: **67/100 images,33 pending**. Added dated membership/affiliation evidence for **eight profiles**, preserving previous claims, caveats, newer edits and biographies. There are56profiles with membership reviews,30with pending caveats, and44without a review. Biographies remain55/100; individual popularity evidence100/100.
+
+Updated the [15Oct Figma handoff](docs/figma-handoff-2026-10-15.md) and added a [frame/state acceptance checklist](docs/figma-review-checklist-2026-10-15.md). The actual Figma file is still pending. Reference screenshots and a route/data manifest describe the current website, not approved designs.
+
+Chrome verification at **10:18 Bangkok** passed 13 data assertions and produced 15 reference captures, including guest 401, logout clearing the protected queue, and 320/390px admin layouts without document overflow. Fixed the queue grid's mobile overflow and the portrait grid's intrinsic sizing so licensed images fit their containers fully, with visible attribution. At capture time, two text and 58 media jobs were pending; six media jobs had completed in the previous hour. Final browser evidence is `.local/ig-figma-2026-10-11/figma-readiness.json`; unrelated external/social requests are blocked during capture.
+
+**49 targeted tests passed, zero failures/skips**, with isolated databases and mocked providers. Typecheck, server/Next.js builds and Docker builds passed. Local deployment at10:07 preserved all170concert-cycle identities, both monitoring windows, Instagram budget/account state and five biography revisions; the original concert-monitor end remains **12Oct06:00 Bangkok**. [Findings, primary evidence and remaining work](docs/instagram-artist-figma-2026-10-11.md).
+
+## Next Work — 11 Oct 2026, 09:43 Bangkok
+
+1. Prioritize concert completeness before the original **12Oct06:00** monitoring end. The database-only snapshot shows **147/168 hours,588/588 elapsed checks**, zero cadence issues and201 source-result issues. The current catalogs include20 failed TTM detail pages retained as listing fallbacks and four failed Ticketmelon pages; empty pages need classification before calling them missing concerts. Preserve the existing window and distinguish coverage from scheduling in the final report.
+2. Follow Instagram's three inaccessible/backoff accounts and remaining media queue without forcing requests. At09:42, **97/100 accounts were fresh**, calls/time/CPU41%/39%/0%, one text job and57 media jobs pending. The completed180-sample observer from10Oct20:11–23:11 recorded94–97fresh,14 successful detail jobs and nine successful media jobs. Media now progresses, but sustained100-account hourly freshness remains unaccepted.
+3. Check tonight's **11Oct23:00–00:00** real biography run after the validation fixes: five pending revisions plus45 missing biographies still share ten attempts. Verify new text, event dates, citations and review results rather than infer publication from offline tests.
+4. Continue the36 remaining licensed images and unresolved membership/affiliation evidence, and receive the actual Figma file on15Oct. Individual popularity evidence is already100/100. X/Facebook live discovery evidence, later UAT and deployment/restore verification remain acceptance work.
+
+This prioritization uses read-only status/observer data; it does not change workers, queues or provider budgets. Evidence: `.local/backlog-2026-10-09/next-priorities-2026-10-11.json` and `.local/four-priorities-2026-10-10/observation.json`.
+
+## Biography Validation Fixes — 11 Oct 2026, 05:49 Bangkok
+
+Deployed the corrected **biography worker** for tonight's23:00–00:00 window. Date context now accepts Thai/English month names and Buddhist/Common Era years. Historical headings and directly evidenced song-theme wording no longer trigger broad current-status checks; actual current/latest claims and undated affiliations/metrics remain restricted. Explicit release-date lines survive extraction and the context cap, and a publication year cannot establish a release/event year. Fan-base spelling with a space is recognized when the selected evidence supports it.
+
+Draft JSON schemas bind each source to its own excerpt IDs. Server checks reject cross-source, unknown, empty or duplicate selections with actionable repair feedback; they never silently reassign sources. Both generator and reviewer instructions distinguish article dates from event dates and require dated affiliation context. The existing one-repair limit,27B model,8192-token context, nightly ten-attempt cap and administrator/version protections remain enforced.
+
+**60 biography tests passed, zero failures/skips**, using isolated databases and mocked providers; typecheck, server build and Docker build passed. Unchanged-draft replay clears the three diagnosed false positives while newly blocking Valentina's unsupported2020release year and still rejecting LANDOKMAI's cross-source selection. The deployed compiled runtime passed date/release/grounding checks. Only the biography worker restarted: all **165 existing concert-cycle identities, both monitoring windows,30 biography runs, five revision requests and177 published sections** were preserved. The monitor still ends12Oct06:00 Bangkok.
+
+No saved draft was published retroactively and no model/Graph calls were forced. There are still **55 biographies /45 missing**, with five revisions pending. Actual new drafts, model review and Ollama's constrained-schema behavior will be checked in tonight's normal run. [Changes, verification and evidence](docs/biography-validation-fixes-2026-10-11.md).
+
+## Nightly Biography Results — 11 Oct 2026, 05:20 Bangkok
+
+Audited the10Oct23:00–00:00 run against the live database and saved watcher: **ten attempts, zero publications**, with35 draft sections. All attempts ended by23:13; the nightly ten-attempt cap stopped further work. All20 biography GPU requests completed without a timeout, but each draft failed deterministic validation before model factual review. Eight runs failed date/context checks, Pae failed a blanket current-word check, and LANDOKMAI mixed excerpt IDs across sources. The `insufficient_sources` status currently groups these different failures together.
+
+Offline replay confirmed validator false positives for a Thai month/year date, a historical heading and song-theme wording. A subsequent fan-base spelling check also rejects supported wording. Separately, Valentina's draft wrongly inferred LET GO's release year from the article publication date; the source gives20Dec2019. Fixing date recognition alone would not establish factual correctness. **55/100 biographies remain,45 missing**, and all five correction requests remain pending; their original16 sections match the archives exactly, including the previously identified quality issues.
+
+Three isolated-user chats during actual27B work returned HTTP200 in **5.467/4.388/6.594seconds**, with the expected separate-user sources and one GPU preemption. This concurrency case passed. The watcher's positive mechanical-check state does **not** mean biography quality passed: its published-citation array was empty. This audit changed documentation only; no model/Graph calls, biography edits, queue resets or service restarts were made. [Per-profile findings, primary sources and required fixes](docs/biography-night-audit-2026-10-11.md).
+
+## Four Priorities Implemented — 10 Oct 2026
+
+Implemented publication-date extraction, conservative temporal/number checks, clearer biography rejection diagnostics and an identity-checked YouTube source reader. Migration **029** adds explicit revision requests: five AI biographies are queued for correction, with their original 16 sections archived. Normal discovery still selects missing biographies; corrections share the existing **23:00–00:00 Bangkok / ten attempts per night** limit and preserve concurrent administrator edits. There are **55 biographies / 45 missing**; queued corrections are not completed publications.
+
+Instagram enrichment now separates call-count headroom from CPU/time usage and alternates eligible text/media jobs while preserving discovery deadlines, reservations and cooldowns. The last pre-deployment sample was **97/100 fresh**, with HERS, MEAN and Tonhon in backoff. Sustained hourly coverage of all 100 accounts remains unverified; reporting does not call Graph.
+
+Recovered **two TTM concerts / four physical performances**, excluding streaming/rerun entries and unsupported end times. Added independent cadence/coverage acceptance checks and an automatic, non-overwriting final JSON archive with SHA256 after the original **12 Oct, 06:00 Bangkok** end. At20:05, monitoring recorded **134/168 hours, 536/536 elapsed checks**, zero cadence issues and175 source-result issues; the active cycle was still running. Complete scheduling is not complete source coverage.
+
+Artist evidence now covers **64/100 licensed images** (36 pending) and **100/100 individual popularity observations**. Three new LYKN images explicitly show group context. Metrics retain their units and observation dates and do not form a comparable overall ranking. The15Oct Figma handoff now includes community, reviews, maps and administration states; no Figma file has been received.
+
+Typecheck, server/Next.js builds and Docker builds passed. The complete isolated regression passed **345 tests**, followed by **39 passing final checks**, with no failures/skips. Actual nightly Ollama corrections, concurrent chats and post-deployment Instagram observation remain separate live acceptance work. [Implementation, evidence and remaining checks](docs/four-priorities-2026-10-10.md).
+
+Deployed locally at **20:09 Bangkok**, preserving all156 concert-cycle records, both original monitoring windows, Instagram budget/account state and five revision requests. Chrome verified all four new image-credit displays, the administrator revision queue and publication-date labels, guest401 and a390px mobile layout without overflow or page errors. At20:10 Instagram was97/100 fresh, calls/time/CPU45%/42%/0%, with two text and92 media jobs pending; media correctly waits while total-time usage is above40%. A three-hour database-only observer is running. A separate acceptance watcher is waiting for tonight's real biography window and will test three isolated-user chats during27B inference; these live results are pending.
+
+## Prioritization Recorded — 10 Oct 2026, Before Implementation
+
+Fix biography publication dates and temporal claims before tonight's23:00 window, then prepare source-grounded AI revisions for the five published profiles without overwriting manual edits. Improve sources and rejection diagnostics for the45 pending profiles. These fixes are recommended next work and are not implemented yet.
+
+The Instagram observer has completed180 database-only samples from07:48–10:48 Bangkok. Its last hour ranged **93–97/100 fresh**, ending at97 with30-second pacing, usage calls/time/CPU40%/31%/0% and three accounts in backoff. Since deployment it recorded307 successful discovery checks across97 accounts,20 successful text jobs and no successful media jobs. Investigate residual discovery gaps and media progress before accepting sustained hourly freshness; keep inaccessible accounts in the denominator. Continue TTM detail coverage work and retain the original concert-monitor end at **12 Oct,06:00 Bangkok**. This prioritization changes documentation only.
+
+## AI Biography Quality Audit — 10 Oct 2026, 15:19 Bangkok
+
+Audited all **five automatically published profiles / 16 sections** against their stored sources, model drafts and primary-source pages. All16 sections retain matching evidence and registered citations; all five production drafts pass the existing structural/review validators. Chrome confirms the text, source links, AI badge and administrator-review notice on every profile. The system has55 profiles with biographies and45 pending; the worker is healthy, using local `encore-biography:qwen3.8-27b`, with the next window tonight23:00–00:00 and ten attempts maximum.
+
+**Factual quality remains open.** WHAL & DOLPH's “latest single” uses a2023 article; Valentina's two releases/6.6million streams come from a2020 article and require historical context. Pae's text covers one older EP and calls collaborators “members” in its heading; Rooftop's13-year experience lacks a source date, and TITI's “latest” label is not a complete catalog check. The reader preserves fetch time but loses publication dates from model input. Evidence matching alone cannot prove current facts or a complete life/career history.
+
+The other five attempts were correctly withheld. Chart Suchart's draft changed **seven months to seven days** for70million views; the model review detected the error, and the incomplete review structure prevented publication. MOBYE/COPTER produced only two sections, FETCH's last section was below80characters, and TACE lacked sufficient source text. This audit changed documentation only; no biographies, queue settings or production runs were modified. [Per-profile findings, primary sources and next fixes](docs/biography-quality-audit-2026-10-10.md).
+
+## Hourly Instagram Queue — 10 Oct 2026, 07:50 Bangkok
+
+Fixed the pacing rule that forced a 100-account discovery pass above an hour at the observed 45% total-time usage. Complete healthy headers below 60% now allow gradual recovery toward 30-second spacing; higher usage slows requests, and the existing 75% pause, Retry-After, persistent reservations and account backoff remain enforced. Discovery checks three latest post identities and normally revisits accounts after 55 minutes. A global deadline calculation reserves capacity for the entire eligible queue, starts the oldest account early when necessary and defers text/media enrichment when it would delay discovery. Existing posts, captions and media are retained.
+
+At 30-second spacing, 100 discovery slots with two seconds of overhead each take **53.3 minutes**. This is tested capacity, not a live freshness guarantee: unavailable accounts, longer requests and provider cooldowns still cause gaps, and full text/media enrichment can lag discovery. API/CLI reports now include per-account hourly deadlines and capacity at the current pacing; reporting makes no Graph calls.
+
+**34 focused tests passed, zero failures/skips**, including actual fixture PostgreSQL ingestion of 100 accounts at 45% usage, a six-hour scheduling simulation, synchronized deadlines, concurrent requests, cooldowns and inaccessible accounts. Typecheck, server build and Docker API/worker builds passed. Deployed locally at 07:47, preserving all **143 concert cycles**, both monitoring windows, account timestamps and the Meta budget. The original end remains **12 Oct, 06:00 Bangkok**.
+
+The first live sample at 07:48 was **57/100 fresh**, spacing 55 seconds during gradual recovery, usage calls/time/CPU **22%/38%/0%**, with HERS, MEAN and Tonhon in backoff. A bounded three-hour database-only observer is collecting actual coverage and gaps; sustained hourly acceptance remains pending. No credentials or migration are required. [Settings, evidence and verification](docs/instagram-hourly-2026-10-10.md). Historical measurements below retain their original dates.
+
 ## Artist Data and Source Monitoring — 9 Oct 2026, 23:15 Bangkok
 
 Added **12 licensed artist images** with matching credits (now **60/100**, 40 pending) and **44 individual popularity observations** (now **94/100**, six pending). Popularity evidence retains its source, unit and observation date; Spotify monthly listeners are snapshots, not followers or an overall ranking. Existing evidence and administrator edits were preserved. [Image rights](docs/image-rights-completion-2026-10-09.md), [popularity evidence](docs/popularity-completion-2026-10-09.md).

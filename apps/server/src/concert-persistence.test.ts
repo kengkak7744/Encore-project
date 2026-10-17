@@ -17,6 +17,22 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
     for (const file of (await readdir(dir)).filter(name => name.endsWith('.sql')).sort()) await client.query(await readFile(new URL(file,dir),'utf8'));
     t.mock.method(pool,'query',(sql: string,params: unknown[]) => client.query(sql,params));
     const base: ConcertEvent = { title: 'Fixture Live',url: 'https://www.theconcert.com/p/123',venue: 'Hall A',country: 'TH',startsAt: '2030-12-25T09:00:00Z',endsAt: '2030-12-25T16:00:00Z',priceMin: 350,priceMax: 350,completeSchedule: true,image: 'https://example.com/actual-poster.jpg' };
+    await t.test('A changed source currency cannot relabel retained amounts; same-currency unknown prices retain history',async()=>{
+      const input={...base,title:'Currency transition',url:'https://www.ticketmelon.com/fixture/currency',currency:'THB'};
+      await saveEvent('Ticketmelon',input);
+      const read=async()=>(await client.query("SELECT id,currency,price_min,price_max FROM concerts WHERE title='Currency transition'")).rows[0];
+      await saveEvent('Ticketmelon',{...input,currency:'USD',priceMin:null,priceMax:null});
+      let row=await read();assert.equal(row.currency,'USD');assert.equal(row.price_min,null);assert.equal(row.price_max,null);
+      await saveEvent('Ticketmelon',{...input,currency:'USD',priceMin:20,priceMax:30});
+      await saveEvent('Ticketmelon',{...input,currency:'USD',priceMin:null,priceMax:null});
+      row=await read();assert.equal(Number(row.price_min),20);assert.equal(Number(row.price_max),30);
+      await saveEvent('Ticketmelon',{...input,priceMin:null,priceMax:null});
+      row=await read();assert.equal(row.currency,'THB');assert.equal(row.price_min,null);
+      await client.query('UPDATE concerts SET manual_override=true WHERE id=$1',[row.id]);
+      await saveEvent('Ticketmelon',{...input,currency:'USD',priceMin:50});
+      assert.deepEqual(await read(),row,'Administrator currency and amounts retain precedence');
+      await client.query('DELETE FROM concerts WHERE id=$1',[row.id]);
+    });
     await t.test('Venue source data survives missing detail but clears after a move; admin precedence is preserved',async()=>{
       const input={...base,url:'https://www.ticketmelon.com/fixture/location',title:'Location concert',venue:'Location Hall',venueLocation:{address:'99 Rama 1 Road, Bangkok',latitude:13.75,longitude:100.5}};
       await saveEvent('Ticketmelon',input);const row=(await client.query("SELECT * FROM concerts WHERE title='Location concert'")).rows[0];assert.equal(row.venue_location.address,input.venueLocation.address);
@@ -26,6 +42,16 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
       await client.query('UPDATE concerts SET venue_location=$2 WHERE id=$1',[row.id,JSON.stringify({address:'Old address',latitude:13.75,longitude:100.5})]);
       await client.query("UPDATE concerts SET venue='Admin moved venue' WHERE id=$1",[row.id]);assert.equal((await client.query('SELECT venue_location FROM concerts WHERE id=$1',[row.id])).rows[0].venue_location,null,'Admin moves must clear the prior map point');
       await client.query('DELETE FROM concerts WHERE id=$1',[row.id]);
+    });
+    await t.test('Cross-provider venue aliases at the same announced place and time do not duplicate a recovered concert',async()=>{
+      const event={...base,title:'Venue alias festival',venue:'Bangkok Island',url:'https://www.ticketmelon.com/fixture/alias',venueLocation:{latitude:13.6981768,longitude:100.5484694}};
+      await saveSourceEvents('Ticketmelon',[event]);
+      await saveSourceEvents('The Concert',[{...event,url:'https://www.theconcert.com/p/5015',venue:'499/1 Rama III Rd',venueLocation:{latitude:13.6985214,longitude:100.5493553}}]);
+      const ids=(await client.query('SELECT DISTINCT concert_id FROM concert_sources WHERE source_url=ANY($1)',[[event.url,'https://www.theconcert.com/p/5015']])).rows;
+      assert.equal(ids.length,1,'Different source labels for this nearby venue should share one concert');
+      await saveSourceEvents('The Concert',[{...event,url:'https://www.theconcert.com/p/5016',venue:'Different district',venueLocation:{latitude:13.75,longitude:100.5}}]);
+      assert.equal((await client.query("SELECT count(*)::int n FROM concerts WHERE title='Venue alias festival'")).rows[0].n,2,'Distant venues cannot merge by title alone');
+      await client.query("DELETE FROM concerts WHERE title='Venue alias festival'");
     });
     await saveSourceEvents('The Concert',[base,{ ...base,startsAt: '2030-12-26T09:00:00Z',endsAt: '2030-12-26T16:00:00Z',priceMin: 590,priceMax: 590 }]);
     let concert = (await client.query('SELECT * FROM concerts')).rows[0];
@@ -75,6 +101,24 @@ test('Concert persistence retains rounds/history, canonical identity, manual and
       await saveSourceEvents('ThaiTicketMajor',[{ ...base,title: 'Organizer Live',url: 'https://www.thaiticketmajor.com/concert/organizer-card.html',venue: 'Hall C',listingOnly: true,timeTba: true,priceMin: null,priceMax: null }]);
       const organizerAfter = (await client.query('SELECT * FROM concerts WHERE id=$1',[organizerBefore.id])).rows[0];
       assert.deepEqual(organizerAfter,organizerBefore,'A new listing source must not overwrite existing organizer details');
+    });
+    await t.test('Verified TTM round tables clear a legacy whole-event end without changing manual or organizer rounds',async()=>{
+      const full={...base,url:'https://www.thaiticketmajor.com/concert/round-end-fixture.html',title:'TTM round end fixture',venue:'Round Hall',completeSchedule:false};
+      await saveSourceEvents('ThaiTicketMajor',[full]);
+      const stored=(await client.query('SELECT c.* FROM concerts c JOIN concert_sources s ON s.concert_id=c.id WHERE s.source_url=$1',[full.url])).rows[0];
+      const round=async()=>(await client.query('SELECT * FROM concert_performances WHERE concert_id=$1 AND starts_at=$2',[stored.id,full.startsAt])).rows[0];
+      assert.ok((await round()).ends_at);
+      await saveSourceEvents('ThaiTicketMajor',[{...full,completeSchedule:true,endsAt:null}]);
+      assert.equal((await round()).ends_at,null,'A verified start-only TTM table cannot keep the old JSON-LD span as its end');
+      await client.query('UPDATE concert_performances SET ends_at=$2 WHERE concert_id=$1',[stored.id,full.endsAt]);
+      await client.query('UPDATE concerts SET manual_override=true WHERE id=$1',[stored.id]);
+      await saveSourceEvents('ThaiTicketMajor',[{...full,completeSchedule:true,endsAt:null}]);
+      assert.equal((await round()).ends_at.toISOString(),'2030-12-25T16:00:00.000Z');
+      await client.query('UPDATE concerts SET manual_override=false WHERE id=$1',[stored.id]);
+      await saveSourceEvents('Live Nation Tero',[{...full,url:'https://www.livenationtero.co.th/round-end-fixture',completeSchedule:true}]);
+      await saveSourceEvents('ThaiTicketMajor',[{...full,completeSchedule:true,endsAt:null}]);
+      assert.equal((await round()).ends_at.toISOString(),'2030-12-25T16:00:00.000Z');
+      await client.query('DELETE FROM concerts WHERE id=$1',[stored.id]);
     });
     await t.test('Organizer input cannot persist an end before its own precise start',async () => {
       const event = { ...base,title: 'Invalid end fixture',url: 'https://www.livenationtero.co.th/invalid-end',venue: 'Hall Z',endsAt: '2030-12-24T17:00:00Z' };

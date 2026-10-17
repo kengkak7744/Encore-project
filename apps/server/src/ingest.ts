@@ -2,16 +2,18 @@ import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { one, query } from './db.js';
 import { config } from './config.js';
-import { parseTtmRounds, ttmVenueMetadata } from './ttm-detail.js';
+import { parseTtmPhysicalDetail, parseTtmRounds, ttmVenueMetadata } from './ttm-detail.js';
 import { instagramFeedPosts, instagramMedia, newsUpsertSql, newsMetadataUpsertSql, newsIdentityUpsertSql } from './social-media.js';
 import { withInstagramBudget, type InstagramBudget } from './instagram-budget.js';
-import { instagramMediaAllowed, instagramRetryMinutes } from './instagram-policy.js';
+import { instagramDiscoveryHeadroom, instagramMediaAllowed, instagramRetryMinutes, instagramSchedulingSpacing } from './instagram-policy.js';
 
 import type { ConcertEvent as Event, DiscoveryMetrics } from './concert-types.js';
-import { eventpopUrl, eventpopPoster, parseEventpopDetail } from './concert-parsers.js';
-import { discoverConcertSource } from './concert-discovery.js';
+import { eventpopUrl, eventpopPoster, eventpopThailandLocation, parseEventpopDetail } from './concert-parsers.js';
+import { discoverConcertSource,concertDiscoveryOutcome } from './concert-discovery.js';
 import { recordConcertBackoff } from './concert-backoff.js';
 import { deliveryVenue,sourceLocation } from './concert-location.js';
+import {ttmNonMusicPerformance} from './concert-page-evidence.js';
+import {chooseInstagramEnrichment} from './instagram-enrichment.js';
 type TicketmasterIdentity = { aliases: string[]; attractionIds: string[]; officialUrls: string[]; evidenceUrls?: Record<string, string> };
 type Source = { name: string; url: string; host: string; linkPattern: RegExp };
 const sources: Source[] = [
@@ -114,7 +116,7 @@ export function parseEvents(markup: string, pageUrl: string): Event[] {
         if (!(Array.isArray(type) ? type : [type]).some((part) => typeof part === 'string' && /event$/i.test(part))) continue;
         const title = str(item.name), date = str(item.startDate);
         const start = date ? eventDate(date) : null;
-        if (!title || !start) continue;
+        if (!title || !start || (ttm && ttmNonMusicPerformance(decodeTitle(title),pageUrl))) continue;
         const place = item.location && typeof item.location === 'object' ? item.location as Record<string, unknown> : {};
         if (ttm && (/OnlineEventAttendanceMode/.test(String(item.eventAttendanceMode || '')) ||
           /VirtualLocation/.test(String(place['@type'] || '')) || /rerun|live\s*stream|ttm\s*live/i.test(str(place.name) || ''))) continue;
@@ -129,6 +131,7 @@ export function parseEvents(markup: string, pageUrl: string): Event[] {
     } catch { /* Invalid third-party JSON-LD cannot stop the remaining items. */ }
   });
   if(ttm) {
+    if(!found.length)return parseTtmPhysicalDetail(markup,pageUrl).map(validEventEnd);
     const details=found.map(ttmVenueMetadata);
     // The visible round table belongs to this detail page, never to linked cards.
     if(details.length===1&&new URL(details[0].url).pathname===new URL(pageUrl).pathname) {
@@ -152,7 +155,7 @@ export function parseEventpopMeta(markup: string, pageUrl: string): Event[] {
   const title = meta('og:title')?.replace(/^Eventpop\s*\|\s*/i, '').trim();
   const startText = meta('og:start_time');
   const location = meta('og:location')?.split(',').map((part) => part.trim()).filter(Boolean) || [];
-  if (!title || !/(concert|music|คอนเสิร์ต|ดนตรี|เพลง|มิวสิค)/i.test(title) || !startText || !/\+07:00$/.test(startText) || location.length < 2 || !/^(thailand|ไทย|ประเทศไทย)$/i.test(location.at(-1)!)) return [];
+  if (!title || !/(concert|music|คอนเสิร์ต|ดนตรี|เพลง|มิวสิค)/i.test(title) || !startText || !/\+07:00$/.test(startText) || location.length < 2 || !eventpopThailandLocation(location.at(-1)!)) return [];
   const startsAt = eventDate(startText)?.iso;
   if (!startsAt) return [];
   const endText = meta('og:end_time');
@@ -194,33 +197,7 @@ export function parseTheConcert(markup: string, pageUrl: string): Event[] {
   return [{ title, url: pageUrl, startsAt, endsAt, venue,venueLocation:{latitude:coords[0],longitude:coords[1]}, country: 'TH', priceMin, currency: 'THB', image: image && validUrl(image) ? image : null }];
 }
 
-export function parseTicketmelon(markup: string, pageUrl: string): Event[] {
-  const url = new URL(pageUrl);
-  if (url.hostname !== 'www.ticketmelon.com' || !/^\/[^/]+\/[^/]+\/?$/.test(url.pathname)) return [];
-  const embedded = cheerio.load(markup)('script#__NEXT_DATA__').html();
-  if (!embedded) return [];
-  let event: Record<string, unknown>;
-  try { event = record(record(record(JSON.parse(embedded)).props).pageProps).event as Record<string, unknown>; }
-  catch { return []; }
-  if (!event || typeof event !== 'object') return [];
-  const title = str(event.name);
-  const categories = Array.isArray(event.categories) ? event.categories : [];
-  const venue = record(event.venue);
-  const currency = record(event.currency);
-  const startsAtMs = Number(event.show_starttime);
-  const endsAtMs = Number(event.show_endtime);
-  const status = str(event.status)?.toLowerCase();
-  if (!title || deliveryVenue(str(venue.name)) || /(?:the series|ตอนที่|episode\s*\d)/i.test(title) || !categories.some((item) => typeof item === 'string' && /music|concert|ดนตรี|คอนเสิร์ต/i.test(item)) ||
-      !/thailand|ประเทศไทย|ไทย/i.test(str(venue.formatted_address) || '') || str(currency.code) !== 'THB' ||
-      !Number.isFinite(startsAtMs) || startsAtMs < Date.parse('2020-01-01') ||
-      !['publish', 'cancelled', 'canceled', 'postponed'].includes(status || '') || event.is_hide_web === true) return [];
-  const artists = Array.isArray(event.artist_tag) ? event.artist_tag : [];
-  return [{ title, url: url.origin + url.pathname, startsAt: new Date(startsAtMs).toISOString(),
-    endsAt: Number.isFinite(endsAtMs) && endsAtMs > startsAtMs ? new Date(endsAtMs).toISOString() : null,
-    venue: str(venue.name),venueLocation:{address:str(venue.formatted_address)||str(venue.address),latitude:venue.latitude as number|string|undefined,longitude:venue.longitude as number|string|undefined,placeId:str(venue.place_id)}, country: 'TH', image: str(event.img_poster), priceMin: null, priceMax: null, currency: 'THB',
-    status: status === 'cancelled' || status === 'canceled' ? 'cancelled' : status === 'postponed' ? 'postponed' : 'scheduled',
-    artist: str(record(artists[0]).artist) }];
-}
+export {parseTicketmelon} from './ticketmelon-source.js';
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function localTimeToUtc(localDate: string, localTime: string, zone: string): string | null {
@@ -340,6 +317,7 @@ function validEventEnd(event: Event): Event {
 
 export async function saveEvent(source: string, event: Event) {
   event = validEventEnd(event);
+  if(source==='ThaiTicketMajor'&&ttmNonMusicPerformance(event.title,event.url))return false;
   if(deliveryVenue(event.venue))return false;
   if (!validUrl(event.url)) return false;
   const date = event.startsAt ? new Date(event.startsAt) : null;
@@ -356,6 +334,22 @@ export async function saveEvent(source: string, event: Event) {
   if (!concertId && date) {
     const candidate = await one<{ id: string }>("SELECT id FROM concerts WHERE (starts_at BETWEEN $1::timestamptz - interval '12 hours' AND $1::timestamptz + interval '12 hours' OR ($3::boolean AND (starts_at AT TIME ZONE 'Asia/Bangkok')::date = ($1::timestamptz AT TIME ZONE 'Asia/Bangkok')::date)) AND country_code=$4 AND $5::text IS NOT NULL AND lower(venue)=lower($5) AND similarity(lower(title), lower($2)) > 0.72 ORDER BY similarity(lower(title), lower($2)) DESC LIMIT 1", [date.toISOString(), event.title, event.timeTba || false, event.country?.slice(0, 2).toUpperCase() || 'TH', event.venue || null]);
     concertId = candidate?.id;
+    if(!concertId){
+      const location=sourceLocation(event.venueLocation,event.url,new Date().toISOString(),event.country||'TH');
+      if(location?.latitude!=null&&location.longitude!=null){
+        // Exact title, near-identical start and source-published points within150m
+        // can identify a venue alias across providers. Ambiguous matches stay separate.
+        const nearby=await query<{id:string}>(`SELECT c.id FROM concerts c
+          WHERE c.starts_at BETWEEN $1::timestamptz-interval '30 minutes' AND $1::timestamptz+interval '30 minutes'
+            AND lower(c.title)=lower($2) AND c.country_code=$3 AND NOT c.manual_override
+            AND EXISTS(SELECT 1 FROM concert_sources s WHERE s.concert_id=c.id AND s.source_name<>$4)
+            AND CASE WHEN jsonb_typeof(c.venue_location->'latitude')='number' AND jsonb_typeof(c.venue_location->'longitude')='number'
+              THEN 111320*sqrt(power((c.venue_location->>'latitude')::double precision-$5::double precision,2)
+                +power(((c.venue_location->>'longitude')::double precision-$6::double precision)*cos(radians($5::double precision)),2))<=150
+              ELSE false END LIMIT 2`,[date.toISOString(),event.title,event.country?.slice(0,2).toUpperCase()||'TH',source,location.latitude,location.longitude]);
+        if(nearby.length===1)concertId=nearby[0].id;
+      }
+    }
   }
   if (!concertId) {
     const key = slug(normalized(event.title) + '|' + (date?.toISOString().slice(0, 10) || '') + '|' + (event.city || '') + '|' + normalized(event.venue || '') + '|' + (event.country || 'TH'));
@@ -371,7 +365,7 @@ export async function saveEvent(source: string, event: Event) {
   }
   // Manual organizer corrections retain precedence over ticketing metadata.
   const hasOrganizer = await one('SELECT 1 FROM concert_sources WHERE concert_id = $1 AND source_role = \'organizer\'', [concertId]);
-  if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=COALESCE($10,price_min), price_max=COALESCE($11,price_max), image_url=COALESCE($12,image_url), image_source_url=CASE WHEN $12::text IS NOT NULL THEN $14 ELSE image_source_url END, image_checked_at=CASE WHEN $12::text IS NOT NULL THEN now() ELSE image_checked_at END, currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB', event.url]);
+  if (role === 'organizer' || !hasOrganizer) await query('UPDATE concerts SET title=$2, description=COALESCE($3,description), venue=COALESCE($4,venue), city=COALESCE($5,city), starts_at=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN starts_at ELSE COALESCE($6,starts_at) END, ends_at=COALESCE($7,ends_at), time_tba=CASE WHEN $8 AND NOT time_tba AND starts_at IS NOT NULL THEN false ELSE $8 END, status=$9, price_min=CASE WHEN currency<>$13 THEN $10 ELSE COALESCE($10,price_min) END, price_max=CASE WHEN currency<>$13 THEN $11 ELSE COALESCE($11,price_max) END, image_url=COALESCE($12,image_url), image_source_url=CASE WHEN $12::text IS NOT NULL THEN $14 ELSE image_source_url END, image_checked_at=CASE WHEN $12::text IS NOT NULL THEN now() ELSE image_checked_at END, currency=$13, last_verified_at=now(), updated_at=now() WHERE id=$1 AND manual_override=false', [concertId, event.title, event.description || null, event.venue || null, event.city || null, date?.toISOString() || null, event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.priceMin ?? null, event.priceMax ?? null, event.image || null, event.currency || 'THB', event.url]);
   const protectedConcert = await one<{ manual_override: boolean }>('SELECT manual_override FROM concerts WHERE id=$1', [concertId]);
   if(!event.listingOnly&&!protectedConcert?.manual_override&&(role==='organizer'||!hasOrganizer)){
     const location=sourceLocation(event.venueLocation,event.url,new Date().toISOString(),event.country || 'TH');
@@ -380,7 +374,10 @@ export async function saveEvent(source: string, event: Event) {
   }
   if (date && !protectedConcert?.manual_override && (role === 'organizer' || !hasOrganizer)) {
     const preciseRound = event.timeTba ? await one("SELECT id FROM concert_performances WHERE concert_id=$1 AND NOT time_tba AND (starts_at AT TIME ZONE 'Asia/Bangkok')::date = ($2::timestamptz AT TIME ZONE 'Asia/Bangkok')::date", [concertId, date.toISOString()]) : null;
-    if (!preciseRound) await query('INSERT INTO concert_performances(concert_id,starts_at,ends_at,time_tba,status,source_url,performance_label) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(concert_id,starts_at) DO UPDATE SET ends_at=COALESCE(EXCLUDED.ends_at,concert_performances.ends_at), time_tba=concert_performances.time_tba AND EXCLUDED.time_tba, status=EXCLUDED.status, source_url=EXCLUDED.source_url, performance_label=COALESCE(EXCLUDED.performance_label,concert_performances.performance_label), is_current=true, updated_at=now()', [concertId, date.toISOString(), event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.url, event.performanceLabel || null]);
+    // Verified TTM tables announce starts only. Their unknown end supersedes an
+    // earlier whole-event JSON-LD span; listing cards cannot clear stored facts.
+    const replaceRoundEnd=source==='ThaiTicketMajor'&&event.completeSchedule===true&&!event.listingOnly;
+    if (!preciseRound) await query('INSERT INTO concert_performances(concert_id,starts_at,ends_at,time_tba,status,source_url,performance_label) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(concert_id,starts_at) DO UPDATE SET ends_at=CASE WHEN $8::boolean THEN EXCLUDED.ends_at ELSE COALESCE(EXCLUDED.ends_at,concert_performances.ends_at) END, time_tba=concert_performances.time_tba AND EXCLUDED.time_tba, status=EXCLUDED.status, source_url=EXCLUDED.source_url, performance_label=COALESCE(EXCLUDED.performance_label,concert_performances.performance_label), is_current=true, updated_at=now()', [concertId, date.toISOString(), event.endsAt || null, event.timeTba || false, event.status || 'scheduled', event.url, event.performanceLabel || null,replaceRoundEnd]);
   }
   if (!protectedConcert?.manual_override && (role === 'organizer' || !hasOrganizer)) await query('UPDATE concerts SET price_note=$2 WHERE id=$1', [concertId, event.priceNote || ((event.priceMin == null && event.priceMax == null) ? 'ต้นทางรอบนี้ยังไม่ระบุราคา ราคาที่แสดงเดิม (ถ้ามี) ต้องตรวจสอบอีกครั้ง' : null)]);
   if (event.artist) await query('INSERT INTO concert_artists(concert_id,artist_id) SELECT $1,id FROM artists WHERE lower(name)=lower($2) OR lower(name_en)=lower($2) ON CONFLICT DO NOTHING', [concertId, event.artist]);
@@ -490,8 +487,7 @@ export async function syncConcerts(options: { cycleId?: number; primaryOnly?: bo
     }
     const result = await discoverConcertSource(source, options);
     const changed = await saveSourceEvents(source.name, result.events);
-    const status = result.metrics.fetchFailures ? (result.events.length ? 'partial' : 'failed') : result.events.length ? 'success' : 'failed';
-    const error = status === 'partial' ? `${result.metrics.fetchFailures} detail pages could not be checked; latest saved data retained` : status === 'failed' ? 'No parseable upcoming music events; latest saved data retained' : undefined;
+    const {status,error}=concertDiscoveryOutcome(result);
     return { seen: result.events.length,changed,metrics: result.metrics,status,error };
   };
   let failures = 0;
@@ -623,13 +619,14 @@ export class InstagramGraphError extends Error {
   }
 }
 
-async function instagramResponse(response: Response, budget?: InstagramBudget) {
+async function instagramResponse(response: Response, budget?: InstagramBudget, accountLookup=false) {
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { error?: { code?: unknown; error_subcode?: unknown } } | null;
     // Keep only numeric diagnostics; Graph messages can contain request credentials.
     const codes = [failure?.error?.code, failure?.error?.error_subcode].filter((value): value is number => typeof value === 'number');
     const error = new InstagramGraphError(response.status, codes);
-    await budget?.observe(response, error.rateLimited);
+    const accountUnavailable=accountLookup&&response.status===400&&[100,110].includes(codes[0])&&codes[1]===2207013;
+    await budget?.observe(response, error.rateLimited,accountUnavailable);
     throw error;
   }
   await budget?.observe(response, false);
@@ -647,7 +644,7 @@ export async function instagramBusinessPosts(handle: string, options: { includeM
   url.searchParams.set('fields', fields);
   await options.budget?.beforeRequest();
   const response = await fetch(url, { headers: { Authorization: 'Bearer ' + config.instagramGraphToken }, signal: AbortSignal.timeout(15000) });
-  const data = await instagramResponse(response, options.budget);
+  const data = await instagramResponse(response, options.budget,true);
   const discovery = data.business_discovery;
   if (!discovery?.id || String(discovery.username || '').toLowerCase() !== username || (discovery.media && !Array.isArray(discovery.media.data))) throw new Error('Instagram Business Discovery account unavailable');
   return instagramFeedPosts(discovery.media?.data);
@@ -655,34 +652,53 @@ export async function instagramBusinessPosts(handle: string, options: { includeM
 
 async function syncInstagramNews(artistSlug?: string) {
   return await withInstagramBudget(async (budget) => {
-    type Account = { id: string; artist_id: string; slug: string; handle: string | null; external_id: string | null; last_checked_at: Date | null; instagram_failures: number; refresh_media: boolean };
-    const discovery = await one<Account>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.instagram_failures,
+    type Account = { id: string; artist_id: string; slug: string; handle: string | null; external_id: string | null; last_checked_at: Date | null; last_success_at: Date | null; instagram_failures: number; refresh_media: boolean };
+    const state = await one(`SELECT usage,usage_checked_at,checks_since_media,spacing_seconds,content_jobs_since_refresh,
+      (SELECT metrics->>'mode' FROM sync_runs WHERE source_name='INSTAGRAM' AND status='success'
+       AND metrics->>'mode' IN ('detail','media') ORDER BY started_at DESC,id DESC LIMIT 1) AS last_enrichment_mode
+      FROM instagram_sync_budget WHERE id=1`);
+    const accounts = await query<{id:string;last_success_at:Date|null}>(`SELECT id,last_success_at FROM social_accounts
+      WHERE platform='instagram' AND verified_at IS NOT NULL
+      AND (instagram_failures=0 OR next_sync_at IS NULL OR next_sync_at<=now())
+      ORDER BY last_success_at NULLS FIRST,last_checked_at NULLS FIRST,id`);
+    const spacing=instagramSchedulingSpacing(state?.spacing_seconds,state?.usage_checked_at);
+    const headroom=instagramDiscoveryHeadroom(accounts.map(account=>account.last_success_at),spacing);
+    const discovery = await one<Account>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.last_success_at,s.instagram_failures,
       (s.last_media_refresh_at IS NULL OR s.last_media_refresh_at <= now()-$2::double precision*interval '1 hour') AS refresh_media
       FROM social_accounts s JOIN artists a ON a.id=s.artist_id WHERE s.platform='instagram' AND s.verified_at IS NOT NULL
-      AND ($1::text IS NULL OR a.slug=$1) AND (s.next_sync_at IS NULL OR s.next_sync_at<=now())
-      ORDER BY s.last_checked_at NULLS FIRST,s.next_sync_at NULLS FIRST,a.slug,s.id LIMIT 1`, [artistSlug || null,config.instagramMediaRefreshHours]);
-    const state = await one('SELECT usage,usage_checked_at,checks_since_media FROM instagram_sync_budget WHERE id=1');
-    const urgent = discovery && (!discovery.last_checked_at || Date.now()-discovery.last_checked_at.getTime()>=60*60_000);
-    const allowMedia = instagramMediaAllowed(state?.usage,state?.usage_checked_at);
+      AND ($1::text IS NULL OR a.slug=$1) AND (s.next_sync_at IS NULL OR s.next_sync_at<=now()
+        OR ($3 AND s.id=$4 AND s.instagram_failures=0 AND s.last_success_at IS NOT NULL))
+      ORDER BY s.last_success_at NULLS FIRST,s.last_checked_at NULLS FIRST,s.next_sync_at NULLS FIRST,a.slug,s.id LIMIT 1`,
+      [artistSlug || null,config.instagramMediaRefreshHours,!headroom.allowEnrichment,accounts[0]?.id || null]);
+    const allowMedia = instagramMediaAllowed(state?.usage,state?.usage_checked_at,Date.now(),config.instagramMediaMaxUsagePercent,Math.min(config.instagramDetailMaxUsagePercent,config.instagramUsagePausePercent-15));
     const allowDetail = instagramMediaAllowed(state?.usage,state?.usage_checked_at,Date.now(),config.instagramDetailMaxUsagePercent);
-    const job = !urgent && (allowMedia || allowDetail) ? await one<Account & { failures: number; needs_text: boolean }>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.instagram_failures,j.failures,j.needs_text
+    // The 55-minute interval makes discovery due, not mandatory in every slot.
+    // Global 60-minute deadlines already reserve the whole queue plus a safety margin.
+    const jobs = headroom.allowEnrichment && (allowMedia || allowDetail) ? await query<Account & { failures: number; needs_text: boolean;reason:string;requested_at:Date }>(`SELECT s.id,s.artist_id,a.slug,s.handle,s.external_id,s.last_checked_at,s.last_success_at,s.instagram_failures,j.failures,j.needs_text,j.reason,j.requested_at
         FROM instagram_media_jobs j JOIN social_accounts s ON s.id=j.account_id JOIN artists a ON a.id=s.artist_id
         WHERE s.platform='instagram' AND s.verified_at IS NOT NULL AND s.last_success_at IS NOT NULL AND s.instagram_failures=0
         AND j.not_before<=now() AND ($1::text IS NULL OR a.slug=$1)
-        AND ((j.needs_text AND $2 AND $4) OR (NOT j.needs_text AND $3 AND $5))
-        ORDER BY j.needs_text DESC,j.requested_at,s.id LIMIT 1`,
-        [artistSlug || null,allowDetail,allowMedia,!discovery || state!.checks_since_media>=5,!discovery || state!.checks_since_media>=10]) : null;
+        AND ((j.needs_text AND $2) OR (NOT j.needs_text AND $3)) AND $4
+        ORDER BY j.requested_at,s.id`,
+        [artistSlug || null,allowDetail,allowMedia,!discovery || state!.checks_since_media>=5]) : [];
+    const job=chooseInstagramEnrichment(jobs,allowMedia&&allowDetail,state?.last_enrichment_mode||null,state?.content_jobs_since_refresh||0);
     const account = job || discovery;
     if (!account) return 0;
-    const mode = job ? job.needs_text ? 'detail' : 'media' : 'discovery';
+    const mode = job ? job.mode : 'discovery';
     // Durable reservations protect both lanes across crashes, manual calls and restarts.
-    if (job) await query("UPDATE instagram_media_jobs SET not_before=now()+interval '5 minutes' WHERE account_id=$1",[account.id]);
+    if (job) {
+      await query("UPDATE instagram_media_jobs SET not_before=now()+interval '5 minutes' WHERE account_id=$1",[account.id]);
+      // Reserve fairness on attempts as well as successes: failing content jobs
+      // must not repeatedly take every optional slot away from refreshes.
+      await query('UPDATE instagram_sync_budget SET content_jobs_since_refresh=CASE WHEN $1 THEN 0 ELSE LEAST(2,content_jobs_since_refresh+1) END WHERE id=1',[job.reason==='refresh']);
+    }
     else await query(`UPDATE social_accounts SET next_sync_at=now()+$2::double precision*interval '1 minute' WHERE id=$1`, [account.id,config.instagramCheckIntervalMinutes]);
     await query(`UPDATE sync_runs SET status='failed',finished_at=now(),error='Instagram worker stopped before sync finished'
       WHERE source_name='INSTAGRAM' AND status='running'`);
     const metrics: Record<string, unknown> = { mode,accountId: account.id,artistId: account.artist_id,artistSlug: account.slug,handle: account.handle,
       requests: 0,accountsChecked: mode==='discovery' ? 1 : 0,postsChecked: 0,newPosts: 0,mediaRefreshed: false,textRefreshed: false,mediaQueued: false,
-      probeLimit: config.instagramProbeLimit,detailLimit: 20,usageBefore: state?.usage || null };
+      probeLimit: config.instagramProbeLimit,detailLimit: 20,enrichmentReason:job?.reason||null,contentJobsSinceRefreshBefore:state?.content_jobs_since_refresh||0,combinedTextMedia:!!job&&job.needs_text&&mode==='media',discoveryHeadroomSeconds:Number.isFinite(headroom.slackSeconds)?Math.round(headroom.slackSeconds):null,
+      discoverySlotSeconds:headroom.slotSeconds,discoveryDue:!!discovery,discoveryChecksSinceEnrichment:state?.checks_since_media || 0,usageBefore: state?.usage || null };
     return await runSource('INSTAGRAM','news',async runId => {
       const finish = async () => {
         const result = await one('SELECT usage,usage_checked_at,paused_until,spacing_seconds,next_request_at FROM instagram_sync_budget WHERE id=1');

@@ -24,6 +24,35 @@ const date = (value: string | null) => value ? new Date(value).toLocaleString('t
 const category = (value: string) => ({ concert: 'คอนเสิร์ต',news: 'ข่าว',travel: 'เดินทาง' }[value] || value);
 const status = (value: string) => ({ success: 'สำเร็จ',partial: 'ได้บางส่วน',failed: 'ล้มเหลว',skipped: 'ข้าม',running: 'กำลังทำงาน' }[value] || value);
 
+type InstagramQueueReport = {
+  generatedAt: string;
+  queue: {
+    pendingText: number; pendingMedia: number; failedJobs: number; blockedAccounts: number;
+    completedTextLastHour: number; completedMediaLastHour: number;
+    items: {slug:string;handle:string|null;mode:string;reason:string;ageMinutes:number;blocker:string|null;retryAt:string|null;failures:number;last_error:string|null}[];
+  };
+  items: {slug:string;handle:string|null;fresh:boolean;instagram_failures:number;next_sync_at:string|null;last_error:string|null}[];
+};
+const queueBlocker = (value:string|null) => value===null ? 'ผ่านเงื่อนไข ณ เวลาตรวจ' : ({
+  account_backoff:'พักบัญชีตามข้อผิดพลาดต้นทาง',awaiting_discovery_recovery:'รอตรวจบัญชีสำเร็จอีกครั้ง',
+  awaiting_discovery:'ยังตรวจบัญชีไม่สำเร็จ',job_backoff:'พักงานเติมสื่อ/ข้อความ',provider_cooldown:'พักทั้งแอปตามต้นทาง',
+  usage_guard:'รอโควตาต่ำกว่าเกณฑ์/ข้อมูลโควตาล่าสุด',discovery_priority:'รักษารอบตรวจโพสต์ก่อน',discovery_spacing:'เว้นช่วงให้คิวตรวจโพสต์',
+} as Record<string,string>)[value] || value;
+
+function InstagramQueues() {
+  const {data,error,loading}=useData<InstagramQueueReport>('/admin/instagram-monitor',60_000);
+  const queue=data?.queue;
+  return <section className="panel" aria-label="สถานะบัญชีและคิว Instagram"><h3>บัญชีและคิวเติมสื่อ Instagram</h3>
+    {loading&&<p className="loading">กำลังอ่านคิว...</p>}{error&&<p role="alert" className="notice error">{error}</p>}
+    {queue&&<><p>รอข้อความ {queue.pendingText} · รอสื่อ {queue.pendingMedia} · ติดข้อผิดพลาดบัญชี {queue.blockedAccounts} · งานเติมข้อมูลที่ผิดพลาด {queue.failedJobs}</p>
+      <p>สำเร็จในชั่วโมงล่าสุด: ข้อความ {queue.completedTextLastHour} · สื่อ {queue.completedMediaLastHour} · ข้อมูล ณ {date(data!.generatedAt)}</p>
+      <p className="muted">การพบโพสต์กับการเติมข้อความ/รูป/วิดีโอเป็นคนละคิว อายุคิวเริ่มจากคำขอแรก ไม่ใช่อายุสื่อทุกชิ้น สถานะผ่านเงื่อนไขยังต้องรอช่องเรียกและคิวตรวจโพสต์ รายงานนี้อ่านฐานข้อมูลและไม่เรียก Graph เพิ่ม</p>
+      {data!.items.filter(item=>item.instagram_failures>0).map(item=><p className="notice" key={item.slug}><a href={'/artists/'+item.slug}>@{item.handle||item.slug}</a> · ล้มเหลวต่อเนื่อง {item.instagram_failures} ครั้ง · ตรวจบัญชีอีกครั้ง {date(item.next_sync_at)}<br/>{item.last_error||'ต้นทางไม่พร้อม'}</p>)}
+      <details><summary>ดูคิวรายบัญชี ({queue.items.length})</summary><div className={styles.tableWrap}><table className={styles.table}><caption>คิวเติมข้อมูล — อัปเดตจากฐานทุก 60 วินาที</caption><thead><tr><th>ศิลปิน / บัญชี</th><th>คิว</th><th>รอมาแล้ว</th><th>เงื่อนไข ณ เวลาตรวจ</th><th>เวลา retry ที่ระบุ</th></tr></thead><tbody>{queue.items.map(item=><tr key={item.slug}><td><a href={'/artists/'+item.slug}>{item.slug}</a><small>@{item.handle||'ไม่ระบุ'}</small></td><td>{item.mode==='detail'?'ข้อความ':'รูป/วิดีโอ'}<small>{item.reason}</small></td><td>{number(item.ageMinutes)} นาที</td><td>{queueBlocker(item.blocker)}{item.last_error&&<small>{item.last_error}</small>}</td><td>{item.retryAt?date(item.retryAt):'ไม่มีเวลาสำเร็จที่รับประกัน'}</td></tr>)}</tbody></table></div></details>
+    </>}
+  </section>;
+}
+
 export function DataUsage() {
   const [period,setPeriod] = useState('24h');
   const { data,loading,error,reload } = useData<Usage>('/admin/data-usage?period='+period,60_000);
@@ -47,6 +76,7 @@ export function DataUsage() {
         <p>บัญชียืนยัน {ig?.accounts ?? '—'} · รอถึงรอบตรวจ {ig?.pendingAccounts ?? '—'} · ตรวจสำเร็จในช่วงความสดที่ตั้งไว้ {ig?.freshAccounts ?? '—'}</p>
         <p className="muted">Meta จำกัด call / time / CPU แยกกัน ตัวใดสูงก็ทำให้ระบบพักได้ ตัวเลขนี้เป็น snapshot ของแอป ไม่ใช่โควตารายศิลปินหรือรายช่วงรายงาน</p>
       </section>
+      <InstagramQueues/>
       <div className={styles.tableWrap}><table className={styles.table}><caption>แยกตามแหล่งข้อมูล — {period==='7d' ? '7 วันล่าสุด' : '24 ชั่วโมงล่าสุด'}</caption><thead><tr><th>แหล่ง / หมวด</th><th>รอบดึง</th><th>ผลการดึง</th><th>คำขอ HTTP/API</th><th>รายการที่ตรวจ / เปลี่ยน</th><th>โควตาคงเหลือ</th><th>เวลาตรวจ</th></tr></thead><tbody>{data.sources.map(s => <tr key={s.category+':'+s.source_name}><td><strong>{s.source_name}</strong><small>{category(s.category)} · {s.enabled===true ? 'เปิดใช้งาน' : s.enabled===false ? 'ปิดใช้งาน' : 'ไม่มีสถานะแหล่ง'}</small></td><td>{number(s.runs)}</td><td>สำเร็จ {s.succeeded}<small>บางส่วน {s.partial} · ล้มเหลว {s.failed}<br/>ข้าม {s.skipped} · ทำงาน {s.running}</small></td><td>{s.requests===null ? 'ยังไม่ทราบ' : number(s.requests)}{s.unmetered_runs>0 && <small>ไม่ได้บันทึก {s.unmetered_runs} รอบ</small>}</td><td>{number(s.items_seen)} / {number(s.items_changed)}</td><td>{/instagram/i.test(s.source_name) ? 'ดูค่าจาก Meta ด้านบน' : 'ยังไม่ได้บันทึกโควตาจากต้นทาง'}</td><td>เริ่ม {date(s.last_started_at)}<small>สำเร็จ {date(s.last_success_at)}</small></td></tr>)}</tbody></table></div>
       <p className="muted">รายการที่ตรวจ/เปลี่ยนเป็นยอดรวมจากรอบดึง อาจนับรายการเดิมหลายครั้ง การตรวจครบหลายรอบไม่ได้ยืนยันว่าครบทุกงาน รายงานนี้เป็นช่วงย้อนหลังแบบเลื่อนเวลา; <a href="/status">รายงานตรวจรับคอนเสิร์ต 7 วัน</a> ใช้ช่วงติดตามเดิม</p>
       <section className="panel"><h3>รอบล่าสุด (สูงสุด 30 รอบในช่วงที่เลือก)</h3>{!data.recent.length && <p>ยังไม่มีรอบดึงในช่วงนี้</p>}<ul className={styles.recent}>{data.recent.map((run,index) => <li key={run.started_at+':'+index}><strong>{run.source_name}</strong><span>{category(run.category)} · {status(run.status)}</span><time>{date(run.started_at)}</time></li>)}</ul></section>

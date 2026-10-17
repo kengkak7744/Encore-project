@@ -7,7 +7,7 @@ test('reads a 1.4 MB artist page and extracts prose without its site scripts', a
   const prose = 'การรวมตัวของ 4 หนุ่ม นำโดย โปเต้ (ร้องนำ), พัด (กีตาร์), ปาล์ม (คีย์บอร์ด), กัน (เบส)';
   const html = `<html><title>MEAN Band | LOVEiS</title><script>${'x'.repeat(1_400_000)}</script><main><p>${prose}</p></main></html>`;
   const text = await readBiographyResponse(Readable.from([Buffer.from(html)]));
-  assert.equal(extractBiographyText(text), `MEAN Band | LOVEiS ${prose}`.normalize('NFKC'));
+  assert.equal(extractBiographyText(text), `MEAN Band | LOVEiS\n\n${prose}`.normalize('NFKC'));
 });
 
 test('rejects oversized pages and destroys the response before parsing', async () => {

@@ -52,7 +52,9 @@ adminRoutes.put('/artists/:id/sources', async (req, res) => {
 
 adminRoutes.get('/biography-runs', async (_req, res) => {
   const items = await query('SELECT r.*,a.name AS artist_name,a.slug AS artist_slug FROM biography_runs r JOIN artists a ON a.id=r.artist_id ORDER BY r.started_at DESC LIMIT 50');
-  res.json({ items });
+  const revisions = await query(`SELECT q.id,q.reason,q.status,q.requested_at,q.finished_at,q.completed_run_id,a.name AS artist_name,a.slug AS artist_slug
+    FROM biography_revision_requests q JOIN artists a ON a.id=q.artist_id ORDER BY q.requested_at DESC LIMIT 50`);
+  res.json({ items,revisions });
 });
 
 adminRoutes.post('/concerts', async (req, res) => {

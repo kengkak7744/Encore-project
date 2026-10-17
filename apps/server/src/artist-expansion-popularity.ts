@@ -6,12 +6,12 @@ export type ExpansionPopularityEvidence = {
 };
 
 export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: string; counts: { verified: number; pending: number; liveSnapshotsToday: number }; rows: ExpansionPopularityEvidence[] } = {
-  "checkedAt": "2026-10-09T16:10:44.572Z",
+  "checkedAt": "2026-10-10T12:42:11.679Z",
   "timezone": "Asia/Bangkok",
   "counts": {
-    "verified": 44,
-    "pending": 6,
-    "liveSnapshotsToday": 26
+    "verified": 50,
+    "pending": 0,
+    "liveSnapshotsToday": 6
   },
   "rows": [
     {
@@ -42,16 +42,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "copter",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.youtube.com/embed/niEybGRancQ",
-      "sourceLabel": "LOVEiS — COPTER",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
-      "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "status": "verified-snapshot",
+      "metric": "youtube_video_views",
+      "value": 103341,
+      "sourceUrl": "https://www.youtube.com/watch?v=niEybGRancQ",
+      "sourceLabel": "COPTER PANUWAT",
+      "work": "COPTER PANUWAT - แฟนติ่ง (Fan's Things) I 「 OFFICIAL MV 」",
+      "sourceDate": "2025-04-03",
+      "measuredAt": "2026-10-10T12:38:09.507Z",
+      "checkedAt": "2026-10-10T12:38:09.507Z",
+      "note": "ยอดดูสะสมเฉพาะ MV ของผลงานศิลปินนี้ ณ เวลาตรวจ ไม่ใช่จำนวนแฟนหรือยอดดูทุกผลงาน ไม่ใช้เป็นอันดับรวม ไม่ใช่ค่าที่อัปเดตอัตโนมัติ; ยืนยันตัวตน COPTER PANUWAT จากหน้า LOVEiS https://www.loveisentertainment.com/copter และบัญชี ccopter ในคำอธิบาย MV ไม่ใช่ศิลปินชื่อ Copter ของ BOXX"
     },
     {
       "slug": "de-flamingo",
@@ -68,16 +68,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "fetch",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.youtube.com/embed/0wnVAdywnsE",
-      "sourceLabel": "LOVEiS — FETCH",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
-      "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "status": "verified-snapshot",
+      "metric": "youtube_video_views",
+      "value": 159941,
+      "sourceUrl": "https://www.youtube.com/watch?v=0wnVAdywnsE",
+      "sourceLabel": "LOVEiS",
+      "work": "FETCH - ถ้าเธอลืมไม่ไหว (CHAINED) [Official MV]",
+      "sourceDate": "2024-11-07",
+      "measuredAt": "2026-10-10T12:38:13.061Z",
+      "checkedAt": "2026-10-10T12:38:13.061Z",
+      "note": "ยอดดูสะสมเฉพาะ MV ของผลงานศิลปินนี้ ณ เวลาตรวจ ไม่ใช่จำนวนแฟนหรือยอดดูทุกผลงาน ไม่ใช้เป็นอันดับรวม ไม่ใช่ค่าที่อัปเดตอัตโนมัติ; ยืนยัน FETCH วงเดียวกับหน้า LOVEiS https://www.loveisentertainment.com/fetch และบัญชี fetch.bkk ในคำอธิบาย MV"
     },
     {
       "slug": "fourth",
@@ -173,16 +173,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "hong-lykn",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.gmm-tv.com/artists/view/47/",
-      "sourceLabel": "GMMTV — Hong (LYKN)",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
-      "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "status": "verified-snapshot",
+      "metric": "youtube_video_views",
+      "value": 6274883,
+      "sourceUrl": "https://www.youtube.com/watch?v=CvTuWXb-8hk",
+      "sourceLabel": "LYKN",
+      "work": "ถูกสเปก (Let’s Go) - HONGSHI [ OFFICIAL MV ]",
+      "sourceDate": "2026-04-07",
+      "measuredAt": "2026-10-10T12:40:00.955Z",
+      "checkedAt": "2026-10-10T12:40:00.955Z",
+      "note": "ยอดดูสะสมเฉพาะ MV ของผลงานศิลปินนี้ ณ เวลาตรวจ ไม่ใช่จำนวนแฟนหรือยอดดูทุกผลงาน ไม่ใช้เป็นอันดับรวม ไม่ใช่ค่าที่อัปเดตอัตโนมัติ; ผลงานโซโล่ HONGSHI บนช่องทางการ LYKN ยืนยันตรงหน้า GMMTV https://www.gmm-tv.com/contents/VyyE5/ ไม่ใช่ยอดรวมวง และไม่ใช่คลิป TEASER P_dcUqlnNDY"
     },
     {
       "slug": "jeep",
@@ -238,16 +238,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "lego-lykn",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.gmm-tv.com/artists/view/71/",
-      "sourceLabel": "GMMTV — Lego (LYKN)",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
+      "status": "verified-snapshot",
+      "metric": "spotify_monthly_listeners",
+      "value": 46537,
+      "sourceUrl": "https://open.spotify.com/artist/3GSFe2yYu6yHS0hI1k4ElL",
+      "sourceLabel": "Spotify — LEGO",
+      "work": "LEGO",
       "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "measuredAt": "2026-10-10T12:40:30.785Z",
+      "checkedAt": "2026-10-10T12:40:30.785Z",
+      "note": "จำนวนผู้ฟังรายเดือนของโปรไฟล์บุคคล ณ เวลาตรวจ ไม่ใช่ยอดผู้ติดตาม สตรีม ยอดวง หรืออันดับรวม เป็น snapshot ไม่อัปเดตอัตโนมัติ; ยืนยันตัวตนจาก credit LEGO ในเพลง Cat Me If You Can https://open.spotify.com/album/35EXPPHLZVf22gnlJl0alt และหน้า GMMTV https://www.gmm-tv.com/contents/z7Y0B/ ซึ่งระบุ #Lego_Rapeepong ไม่ใช้ยอด FELIZZ หรือ LYKN แทนรายบุคคล"
     },
     {
       "slug": "loserpop",
@@ -368,16 +368,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "nut-lykn",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.gmm-tv.com/artists/view/100/",
-      "sourceLabel": "GMMTV — Nut (LYKN)",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
-      "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "status": "verified-snapshot",
+      "metric": "youtube_video_views",
+      "value": 2704217,
+      "sourceUrl": "https://www.youtube.com/watch?v=fg5DGDB-frw",
+      "sourceLabel": "LYKN",
+      "work": "เทสดี (Tasty) - NUTDAN [ OFFICIAL MV ]",
+      "sourceDate": "2026-06-22",
+      "measuredAt": "2026-10-10T12:40:03.134Z",
+      "checkedAt": "2026-10-10T12:40:03.134Z",
+      "note": "ยอดดูสะสมเฉพาะ MV ของผลงานศิลปินนี้ ณ เวลาตรวจ ไม่ใช่จำนวนแฟนหรือยอดดูทุกผลงาน ไม่ใช้เป็นอันดับรวม ไม่ใช่ค่าที่อัปเดตอัตโนมัติ; ผลงานโซโล่ NUTDAN บนช่องทางการ LYKN ยืนยันชื่อและแท็ก nnutdan ตรงหน้า GMMTV https://www.gmm-tv.com/contents/8GQYL/ ไม่ใช่ยอดรวมวง"
     },
     {
       "slug": "oabnithi",
@@ -576,16 +576,16 @@ export const artistExpansionPopularityEvidence: { checkedAt: string; timezone: s
     },
     {
       "slug": "tui-lykn",
-      "status": "indexed-primary-live-check-pending",
-      "metric": "individual_reach_pending",
-      "value": null,
-      "sourceUrl": "https://www.gmm-tv.com/artists/view/152/",
-      "sourceLabel": "GMMTV — Tui (LYKN)",
-      "work": "บัญชี/ผลงานต้นทางที่ต้องตรวจตัวเลขเพิ่ม",
+      "status": "verified-snapshot",
+      "metric": "spotify_monthly_listeners",
+      "value": 170515,
+      "sourceUrl": "https://open.spotify.com/artist/6KetfJx33troRK1HfaurAG",
+      "sourceLabel": "Spotify — TuiChayatorn",
+      "work": "TuiChayatorn",
       "sourceDate": null,
-      "measuredAt": null,
-      "checkedAt": "2026-10-09T11:41:25.679Z",
-      "note": "ยืนยันช่องทางหรือผลงานจากต้นสังกัดได้ แต่ยังไม่มีตัวเลขความนิยมที่ตรวจยืนยันเฉพาะราย; YouTube watch ตัวอย่างตอบ 429 จึงหยุดชุดอ่าน ไม่ถือว่าทุกบัญชีตอบ 429 ไม่ใช้ยอดรวมค่ายหรือวงแทนรายบุคคล"
+      "measuredAt": "2026-10-10T12:38:55.757Z",
+      "checkedAt": "2026-10-10T12:38:55.757Z",
+      "note": "จำนวนผู้ฟังรายเดือนของโปรไฟล์บุคคล ณ เวลาตรวจ ไม่ใช่ยอดผู้ติดตาม สตรีม ยอดวง หรืออันดับรวม เป็น snapshot ไม่อัปเดตอัตโนมัติ; ยืนยันตัวตนจากอัลบั้ม ปล่อยใจ (Bloom) https://open.spotify.com/album/545siLns9NJwJNLmPLhM3w ที่ระบุ TuiChayatorn และ copyright GMM Music ตรงกับเพลงจากช่องทางการ LYKN"
     },
     {
       "slug": "uncle-ben",

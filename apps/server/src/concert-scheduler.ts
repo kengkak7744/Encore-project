@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { pool, one, query } from './db.js';
 import { config } from './config.js';
 import { syncConcerts } from './ingest.js';
-import { buildConcertMonitor, concertMonitorCsv, concertMonitorMarkdown, concertCoverageCsv, type MonitorRun, type MonitorWindow } from './concert-monitor.js';
+import { buildConcertMonitor, buildConcertCoverage, concertMonitorCsv, concertMonitorMarkdown, concertCoverageCsv, type MonitorRun, type MonitorWindow } from './concert-monitor.js';
+import { archiveFinalConcertReport } from './concert-final-report.js';
 
 const hour = 3_600_000;
 export async function getConcertMonitor(windowId?: string) {
@@ -19,6 +20,14 @@ export async function getConcertMonitor(windowId?: string) {
 }
 export async function getConcertMonitorWindows() {
   return query<MonitorWindow>('SELECT id,started_at,ends_at,reason FROM concert_monitor_windows ORDER BY id DESC');
+}
+/** Latest evidence after a closed monitoring window; never affects its verdict. */
+export async function getCurrentConcertCoverage() {
+  const runs=await query<MonitorRun>(`SELECT source_name,started_at AS scheduled_at,started_at,finished_at,status,items_seen,items_changed,error,metrics,
+    CASE WHEN cycle_id IS NULL THEN 'manual' ELSE 'scheduled' END AS "ingestionMode"
+    FROM sync_runs WHERE category='concert' AND source_name=ANY($1::text[]) AND finished_at IS NOT NULL
+      AND started_at>=now()-interval '24 hours' ORDER BY started_at`,[['ThaiTicketMajor','Eventpop','The Concert','Ticketmelon']]);
+  return{generatedAt:new Date().toISOString(),scope:'current' as const,lookbackHours:24,includesManual:true,coverage:buildConcertCoverage(runs)};
 }
 export async function startConcertMonitor(reason: string) {
   if (!reason.trim() || reason.length>500) throw Error('A monitor reason of 1–500 characters is required');
@@ -46,6 +55,7 @@ export async function writeConcertReport() {
     await writeFile(temporary,body,'utf8');
     await rename(temporary,path);
   }
+  if(Date.now()>=Date.parse(report.endsAt))await archiveFinalConcertReport(report,config.concertReportDirectory);
   return report;
 }
 export async function runScheduledConcerts() {

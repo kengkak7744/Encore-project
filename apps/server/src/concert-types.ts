@@ -14,7 +14,9 @@ export type DiscoveryMetrics = {
   discovery: string; warnings: string[]; rejectedDates?: number;
   catalogUrls?: string[]; catalogComplete?: boolean; pages?: CatalogPage[]; listingFallback?: number;
   accessChallenges?: number; deferredListingFallback?: number;
+  excludedPages?: number;
 };
-export type CatalogPage = { url: string; outcome: 'parsed' | 'empty' | 'failed'; sessions: number; error?: string; listingFallback?: boolean };
+export type PageReview = {outcome:'excluded'|'empty';reason:string;evidence:Record<string,string|number|boolean|string[]>};
+export type CatalogPage = { url: string; outcome: 'parsed' | 'empty' | 'failed' | 'excluded'; sessions: number; error?: string; listingFallback?: boolean;reason?:string;evidence?:PageReview['evidence'];checkedAt?:string };
 export type DiscoveryResult = { events: ConcertEvent[]; metrics: DiscoveryMetrics };
 export const primaryConcertSources = ['ThaiTicketMajor', 'Eventpop', 'The Concert', 'Ticketmelon'] as const;

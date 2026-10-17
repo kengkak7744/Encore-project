@@ -4,13 +4,23 @@ import { config } from './config.js';
 import { fetchConcertResource, ConcertAccessChallengeError } from './concert-fetch.js';
 import { recordConcertBackoff } from './concert-backoff.js';
 import { eventpopUrl, parseEventpopDetail, parseTheConcertApi, theConcertListing } from './concert-parsers.js';
-import { parseEvents, parseEventpopMeta, parseLiveNation, parseTicketmelon } from './ingest.js';
+import { parseEvents, parseEventpopMeta, parseLiveNation } from './ingest.js';
+import {analyzeTicketmelon} from './ticketmelon-source.js';
+import {reviewEventpop,reviewTheConcert,reviewTtm} from './concert-page-review.js';
 import type { ConcertEvent, DiscoveryMetrics, DiscoveryResult } from './concert-types.js';
 import { parseTtmListing } from './ttm-listing.js';
 
 type Source = { name: string; url: string; host: string; linkPattern: RegExp };
 const pause = (ms = 400) => new Promise(resolve => setTimeout(resolve, ms));
 const metrics = (discovery: string): DiscoveryMetrics => ({ discovery, discovered: 0, attempted: 0, parsedPages: 0, emptyPages: 0, fetchFailures: 0, filteredPast: 0, pending: 0, limited: false, warnings: [],pages: [],catalogComplete: true });
+
+export function concertDiscoveryOutcome(result:DiscoveryResult):{status:'success'|'partial'|'failed';error?:string} {
+  const m=result.metrics;
+  const unresolved=m.fetchFailures+m.emptyPages+m.pending+(m.rejectedDates||0)+(m.catalogComplete===false?1:0);
+  const evidence=(m.parsedPages+(m.excludedPages||0))>0;
+  if(unresolved)return{status:evidence||result.events.length>0?'partial':'failed',error:`Coverage incomplete: ${m.fetchFailures} failed, ${m.emptyPages} unresolved, ${m.pending} pending, ${m.rejectedDates||0} invalid dates; latest saved data retained`};
+  return evidence?{status:'success'}:{status:'failed',error:'No verified catalog page outcomes; latest saved data retained'};
+}
 
 export function rotatingUrls(entries: { url: string; modified: string }[], priority: string[], offset: number, limit: number) {
   const all = [...new Set(entries.map(item => item.url))].sort();
@@ -78,8 +88,9 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
           rounds = { data: { record: records } };
         }
         const parsed = parseTheConcertApi(detail, rounds);
-        if (parsed.length) counters.parsedPages++; else counters.emptyPages++;
-        counters.pages!.push({ url: 'https://www.theconcert.com/p/' + id,outcome: parsed.length ? 'parsed' : 'empty',sessions: parsed.length });
+        const review=parsed.length?undefined:reviewTheConcert(detail);
+        if (parsed.length) counters.parsedPages++; else if(review?.outcome==='excluded') counters.excludedPages=(counters.excludedPages||0)+1; else counters.emptyPages++;
+        counters.pages!.push({ url: 'https://www.theconcert.com/p/' + id,outcome: parsed.length ? 'parsed' : review!.outcome,sessions: parsed.length,...(review?{reason:review.reason,evidence:review.evidence}:{}) });
         events.push(...parsed);
       } catch (error) {
         counters.fetchFailures++;
@@ -161,13 +172,15 @@ export async function discoverConcertSource(source: Source, options: { sweep?: b
       const markup = await fetchConcertResource(url, source.host, 'html');
       ttmChallenges = 0;
       let parsed: ConcertEvent[];
-      if (source.name === 'Ticketmelon') parsed = parseTicketmelon(markup, url);
+      let review;
+      if (source.name === 'Ticketmelon') {const result=analyzeTicketmelon(markup,url);parsed=result.events;review=result.review;}
       else if (source.name === 'Eventpop') { parsed = parseEventpopDetail(markup, url); if (!parsed.length) parsed = parseEventpopMeta(markup, url); }
-      else { parsed = parseEvents(markup, url); if (source.name === 'Live Nation Tero' && !parsed.length) parsed = parseLiveNation(markup, url); }
-      if (parsed.length) counters.parsedPages++; else counters.emptyPages++;
-      counters.pages!.push({ url,outcome: parsed.length ? 'parsed' : 'empty',sessions: parsed.length });
+      else {if(source.name==='ThaiTicketMajor')review=reviewTtm(markup,url);parsed=review?.outcome==='excluded'?[]:parseEvents(markup, url); if (source.name === 'Live Nation Tero' && !parsed.length) parsed = parseLiveNation(markup, url); }
+      if(!parsed.length&&source.name==='Eventpop')review=reviewEventpop(markup);
+      if (parsed.length) counters.parsedPages++; else if(review?.outcome==='excluded') counters.excludedPages=(counters.excludedPages||0)+1; else counters.emptyPages++;
+      counters.pages!.push({ url,outcome: parsed.length ? 'parsed' : review?.outcome||'empty',sessions: parsed.length,...(review?{reason:review.reason,evidence:review.evidence}:{}) });
       events.push(...parsed);
-      if (!parsed.length && listingEvents.has(url)) {
+      if (!parsed.length && review?.outcome!=='excluded' && listingEvents.has(url)) {
         events.push(...listingEvents.get(url)!);counters.listingFallback = (counters.listingFallback || 0) + 1;
         counters.pages!.at(-1)!.listingFallback = true;
       }

@@ -15,12 +15,14 @@ test('Pacing speeds up gradually only with complete healthy usage and slows down
     pace=instagramPacing(usage(20),pace.seconds,pace.healthy); assert.equal(pace.seconds,55);
     for (let i=0;i<60;i++) pace=instagramPacing(usage(20),pace.seconds,pace.healthy);
     assert.equal(pace.seconds,30);
-    assert.equal(instagramPacing(usage(45),30,2).seconds,60);
-    assert.equal(instagramPacing(usage(55),60,2).seconds,90);
-    assert.equal(instagramPacing(usage(70),60,2).seconds,120);
+    assert.equal(instagramPacing(usage(45),30,2).seconds,30);
+    assert.equal(instagramPacing(usage(55),60,2).seconds,55);
+    assert.equal(instagramPacing(usage(60),30,2).seconds,35);
+    assert.equal(instagramPacing(usage(65),30,2).seconds,60);
+    assert.equal(instagramPacing(usage(70),60,2).seconds,60);
     assert.equal(instagramPacing(null,30,2).seconds,60);
     assert.equal(instagramPacing({ ...usage(0),callCount: null },30,2).seconds,60);
-    assert.equal(instagramPacing(usage(70),120,2).seconds,120,'High headers do not compound the spacing forever');
+    assert.equal(instagramPacing(usage(70),120,2).seconds,60,'High headers do not compound the spacing forever');
     assert.equal(instagramPacing(usage(10),120,2).seconds,105);
     config.instagramAdaptivePacingEnabled=false;
     assert.equal(instagramPacing(usage(10),30,2).seconds,60);
@@ -44,4 +46,13 @@ test('Unavailable accounts get bounded exponential retry; transient/rate errors 
   assert.equal(instagramRetryMinutes(new Error('timeout'),1),30);
   assert.equal(instagramRetryMinutes(new Error('timeout'),100),240);
   assert.equal(instagramRetryMinutes(new Error('Instagram Graph HTTP 403 (codes 4)'),1),30);
+});
+
+test('media separates call-count headroom from its stricter processing-time ceiling',()=>{
+  const now=Date.now(),recent=new Date(now);
+  const measured={callCount:46,totalTime:34,cpuTime:0,regainMinutes:null};
+  assert.equal(instagramMediaAllowed(measured,recent,now,40,60),true);
+  assert.equal(instagramMediaAllowed({...measured,totalTime:40},recent,now,40,60),false);
+  assert.equal(instagramMediaAllowed({...measured,callCount:60},recent,now,40,60),false);
+  assert.equal(instagramMediaAllowed({...measured,cpuTime:null},recent,now,40,60),false);
 });

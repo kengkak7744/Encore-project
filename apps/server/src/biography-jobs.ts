@@ -30,10 +30,15 @@ export async function publishBiography(client: pg.PoolClient, artist: BiographyA
     await client.query("SELECT set_config('statement_timeout',$1,true)", [String(Math.max(1, Math.min(10000, window.endsAt.getTime() - now().getTime())))]);
     const locked = await client.query<{ updated_at: string }>('SELECT updated_at::text AS updated_at FROM artists WHERE id=$1 AND NOT biography_manual_override FOR UPDATE', [artist.id]);
     const existing = await client.query('SELECT 1 FROM artist_biography_sections WHERE artist_id=$1 LIMIT 1', [artist.id]);
-    if (!locked.rowCount || existing.rowCount || (artist.updated_at && artist.updated_at !== locked.rows[0].updated_at)) {
+    const revision = artist.revision_id ? await client.query(`SELECT q.id FROM biography_revision_requests q JOIN artists a ON a.id=q.artist_id
+      WHERE q.id=$1 AND q.artist_id=$2 AND q.status='pending' AND q.expected_updated_at=a.updated_at
+      AND q.previous_sections=(SELECT jsonb_agg(to_jsonb(b) ORDER BY position) FROM artist_biography_sections b WHERE b.artist_id=a.id)
+      AND NOT EXISTS(SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id AND (b.generated_model IS NULL OR b.generation_run_id IS NULL)) FOR UPDATE OF q`,[artist.revision_id,artist.id]) : null;
+    if (!locked.rowCount || (artist.revision_id ? !revision?.rowCount : existing.rowCount) || (artist.updated_at && artist.updated_at !== locked.rows[0].updated_at)) {
       await client.query('ROLLBACK');
       return false;
     }
+    if (artist.revision_id) await client.query('DELETE FROM artist_biography_sections WHERE artist_id=$1',[artist.id]);
     for (const [index, section] of draft.sections.entries()) {
       assertActive();
       const source = sources.find((item) => item.id === section.sourceId)!;
@@ -44,6 +49,7 @@ export async function publishBiography(client: pg.PoolClient, artist: BiographyA
     assertActive();
     await client.query("UPDATE artists SET bio=CASE WHEN bio IS NULL OR btrim(bio)='' THEN $2 ELSE bio END, updated_at=now() WHERE id=$1", [artist.id, draft.sections[0].body.slice(0, 240)]);
     await client.query("UPDATE biography_runs SET status='published',finished_at=now(),draft=COALESCE(draft,'{}'::jsonb)||$2::jsonb,error=NULL WHERE id=$1", [runId, JSON.stringify(draft)]);
+    if (artist.revision_id) await client.query("UPDATE biography_revision_requests SET status='completed',completed_run_id=$2,finished_at=now() WHERE id=$1",[artist.revision_id,runId]);
     assertActive();
     await client.query('COMMIT');
     return true;
@@ -73,19 +79,26 @@ export async function runBiographyCycle(options: CycleOptions = {}) {
     if (!window) return { status: 'outside_window' };
     const total = await client.query<{ count: number }>('SELECT count(*)::integer AS count FROM biography_runs WHERE window_date=$1', [window.date]);
     if (total.rows[0].count >= config.biographyMaxPerNight) return { status: 'night_limit' };
-    const candidates = await client.query<BiographyArtist>(`SELECT a.id,a.slug,a.name,a.name_en,a.kind,a.updated_at::text AS updated_at,
+    await client.query(`UPDATE biography_revision_requests q SET status='cancelled',finished_at=now() FROM artists a
+      WHERE q.artist_id=a.id AND q.status='pending' AND (a.biography_manual_override OR q.expected_updated_at<>a.updated_at
+      OR q.previous_sections IS DISTINCT FROM (SELECT jsonb_agg(to_jsonb(b) ORDER BY position) FROM artist_biography_sections b WHERE b.artist_id=a.id))`);
+    const candidates = await client.query<BiographyArtist>(`SELECT a.id,a.slug,a.name,a.name_en,a.kind,a.updated_at::text AS updated_at,q.id::text AS revision_id,
+      q.reason AS revision_reason,
       (SELECT s.handle FROM social_accounts s WHERE s.artist_id=a.id AND s.platform='instagram' AND s.verified_at IS NOT NULL ORDER BY s.id LIMIT 1) AS instagram_handle FROM artists a
-      WHERE NOT a.biography_manual_override AND NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)
+      LEFT JOIN biography_revision_requests q ON q.artist_id=a.id AND q.status='pending'
+      WHERE NOT a.biography_manual_override AND (q.id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id))
       AND NOT EXISTS (SELECT 1 FROM biography_runs r WHERE r.artist_id=a.id AND r.window_date=$1)
-      ORDER BY (SELECT max(r.started_at) FROM biography_runs r WHERE r.artist_id=a.id) ASC NULLS FIRST,a.created_at,a.id LIMIT 1`, [window.date]);
+      ORDER BY (q.id IS NOT NULL) DESC,q.requested_at,(SELECT max(r.started_at) FROM biography_runs r WHERE r.artist_id=a.id) ASC NULLS FIRST,a.created_at,a.id LIMIT 1`, [window.date]);
     const artist = candidates.rows[0];
     if (!artist) return { status: 'empty_queue' };
     const claimed = await client.query<{ id: string }>('INSERT INTO biography_runs(artist_id,window_date,model) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id::text', [artist.id, window.date, config.biographyModel]);
     if (!claimed.rowCount) return { status: 'already_attempted' };
     runId = claimed.rows[0].id;
     windowSignal = AbortSignal.any([options.signal || new AbortController().signal, AbortSignal.timeout(Math.max(1, window.endsAt.getTime() - now().getTime()))]);
-    const links = await client.query<{ source_url: string; label: string }>(`SELECT source_url,label FROM artist_sources WHERE artist_id=$1
-      UNION SELECT url AS source_url,'เว็บไซต์ศิลปิน' AS label FROM social_accounts WHERE artist_id=$1 AND platform='website' AND verified_at IS NOT NULL`, [artist.id]);
+    const links = await client.query<{ source_url: string; label: string }>(`SELECT source_url,label FROM (
+      SELECT source_url,label,checked_at FROM artist_sources WHERE artist_id=$1
+      UNION ALL SELECT url AS source_url,'เว็บไซต์ศิลปิน' AS label,verified_at AS checked_at FROM social_accounts WHERE artist_id=$1 AND platform='website' AND verified_at IS NOT NULL
+      ) links ORDER BY checked_at DESC NULLS LAST,source_url`, [artist.id]);
     const collected: CollectedSources = await (options.collect || collectBiographySources)(artist, links.rows, windowSignal);
     await client.query('UPDATE biography_runs SET source_documents=$2,source_errors=$3 WHERE id=$1', [runId, JSON.stringify(collected.documents), JSON.stringify(collected.errors)]);
     if (!collected.documents.length) throw new BiographyRejected('No readable, matching biography sources found');

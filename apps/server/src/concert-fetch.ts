@@ -5,6 +5,9 @@ const agent = 'ArtistTrackerResearch/0.1 (+public event metadata; contact admin)
 export class ConcertAccessChallengeError extends Error {
   constructor() {super('Access verification page; no bypass attempted');}
 }
+export class ConcertWaitingRoomError extends Error {
+  constructor() {super('Public ticket waiting room; not entered; latest saved data retained');}
+}
 export class ConcertFetchError extends Error {
   readonly retryMs: number;
   constructor(readonly status: number, retryAfter: string | null = null) {
@@ -32,7 +35,11 @@ export async function fetchConcertResource(url: string, host: string, kind: 'htm
   }
   if (!robotsAllows(rules.text, target.pathname + target.search)) throw Error('Blocked by robots.txt');
   const response = await fetch(target, { headers: { 'User-Agent': agent, Accept: kind === 'html' ? 'text/html,application/xhtml+xml' : 'application/' + kind }, redirect: 'manual', signal: AbortSignal.timeout(15000) });
-  if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.get('location') && redirects < 3) return fetchConcertResource(new URL(response.headers.get('location')!, target).href, host, kind, redirects + 1);
+  if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.get('location') && redirects < 3) {
+    const destination=new URL(response.headers.get('location')!,target);
+    if ((target.hostname==='ticketmelon.com'||target.hostname.endsWith('.ticketmelon.com')) && destination.protocol==='https:' && destination.hostname==='ticketmelon.queue-it.net') throw new ConcertWaitingRoomError();
+    return fetchConcertResource(destination.href, host, kind, redirects + 1);
+  }
   if (!response.ok) throw new ConcertFetchError(response.status,response.headers.get('retry-after'));
   const type = response.headers.get('content-type') || '';
   if (!type.includes(kind)) throw Error('Unexpected content type for ' + kind);

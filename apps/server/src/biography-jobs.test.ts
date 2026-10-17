@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { config } from './config.js';
 import { runBiographyCycle } from './biography-jobs.js';
+import { requestBiographyRevision } from './biography-revisions.js';
 import type { BiographyDraft, BiographySource } from './biography-policy.js';
 
 const databaseUrl = process.env.BIOGRAPHY_TEST_DATABASE_URL;
@@ -54,6 +55,46 @@ test('biography worker integration on an isolated database', { skip: !databaseUr
     await t.test('existing biographies never enter the queue', async () => {
       await reset(); await manual(await artist());
       assert.equal((await run({ generate: async () => { throw new Error('must not generate'); } })).status, 'empty_queue');
+    });
+    const requestRevision = async (id: string) => {
+      const client = await database.connect();
+      try { return await requestBiographyRevision(client,id,'Correct stale temporal claims from the quality audit'); }
+      finally { client.release(); }
+    };
+    await t.test('explicit AI revision replaces atomically, archives old sections, and shares the nightly cap',async () => {
+      await reset(); const id=await artist(); await run();
+      const before=(await database.query('SELECT * FROM artist_biography_sections ORDER BY position')).rows;
+      const revisionId=await requestRevision(id);
+      assert.equal((await run()).status,'empty_queue','A revision cannot grant a second attempt in one night');
+      clock=new Date('2026-10-04T16:05:00Z');
+      const revised=structuredClone(draft); revised.sections[0].heading='ข้อมูลจากแหล่งที่ตรวจใหม่';
+      assert.equal((await run({generate:async(artist)=>{assert.equal(artist.revision_reason,'Correct stale temporal claims from the quality audit');return revised;}})).status,'published');
+      const request=(await database.query('SELECT * FROM biography_revision_requests WHERE id=$1',[revisionId])).rows[0];
+      assert.equal(request.status,'completed'); assert.ok(request.completed_run_id);
+      assert.equal(request.previous_sections[0].body,before[0].body);
+      assert.equal((await database.query('SELECT heading FROM artist_biography_sections ORDER BY position')).rows[0].heading,revised.sections[0].heading);
+      assert.equal((await database.query('SELECT count(*)::int n FROM biography_runs')).rows[0].n,2);
+    });
+    await t.test('rejected revision keeps old text and pending request for a later night',async () => {
+      await reset(); const id=await artist(); await run(); await requestRevision(id);
+      const before=(await database.query('SELECT * FROM artist_biography_sections ORDER BY position')).rows;
+      clock=new Date('2026-10-04T16:05:00Z');
+      const bad=structuredClone(draft);bad.sections[0].body+=' เป็นผลงานล่าสุด';
+      assert.equal((await run({generate:async()=>bad})).status,'insufficient_sources');
+      assert.deepEqual((await database.query('SELECT * FROM artist_biography_sections ORDER BY position')).rows,before);
+      assert.equal((await database.query('SELECT status FROM biography_revision_requests')).rows[0].status,'pending');
+    });
+    await t.test('administrator changes cancel queued revisions and concurrent edits win',async () => {
+      await reset(); const id=await artist(); await run();await requestRevision(id);
+      clock=new Date('2026-10-04T16:05:00Z');
+      assert.equal((await run({generate:async()=>{ await database.query("UPDATE artist_biography_sections SET body='Administrator corrected this section' WHERE artist_id=$1 AND position=1",[id]);return draft; }})).status,'skipped');
+      assert.equal((await database.query('SELECT body FROM artist_biography_sections WHERE position=1')).rows[0].body,'Administrator corrected this section');
+      clock=new Date('2026-10-05T16:05:00Z');assert.equal((await run()).status,'empty_queue');
+      assert.equal((await database.query('SELECT status FROM biography_revision_requests')).rows[0].status,'cancelled');
+    });
+    await t.test('manual biographies cannot be requested as AI revisions',async () => {
+      await reset();const id=await artist();await manual(id);
+      await assert.rejects(requestRevision(id),/Only existing automatically/);
     });
     await t.test('an intentionally empty administrator biography never enters the queue',async () => {
       await reset(); const id = await artist();

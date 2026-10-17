@@ -3,7 +3,7 @@ import { one, query } from '../db.js';
 import { config } from '../config.js';
 import { imageCreditJoin, imageCreditSelect } from '../artist-audit.js';
 
-import { getConcertMonitor, getConcertMonitorWindows } from '../concert-scheduler.js';
+import { getConcertMonitor, getConcertMonitorWindows, getCurrentConcertCoverage } from '../concert-scheduler.js';
 import { concertMonitorCsv, concertMonitorMarkdown, concertCoverageCsv } from '../concert-monitor.js';
 import { fetchTtmPoster, isTtmPoster } from '../concert-images.js';
 
@@ -138,7 +138,8 @@ publicRoutes.get('/status', async (_req, res) => {
   const biographyState = await one('SELECT enabled,model,window_start,window_end,max_per_night,last_checked_at,last_error FROM biography_worker_state WHERE id=1');
   const biographyCounts = await one(`SELECT
     (SELECT count(*)::integer FROM artists a WHERE NOT a.biography_manual_override AND NOT EXISTS (SELECT 1 FROM artist_biography_sections b WHERE b.artist_id=a.id)) AS pending,
-    (SELECT count(*)::integer FROM biography_runs WHERE status='published') AS published`);
+    (SELECT count(*)::integer FROM biography_revision_requests WHERE status='pending') AS pending_revisions,
+    (SELECT count(DISTINCT artist_id)::integer FROM biography_runs WHERE status='published') AS published`);
   const biographyRuns = await query('SELECT a.name AS artist_name,a.slug AS artist_slug,r.status,r.started_at,r.finished_at FROM biography_runs r JOIN artists a ON a.id=r.artist_id ORDER BY r.started_at DESC LIMIT 5');
   const instagram = await one(`SELECT b.last_request_at,b.next_request_at,b.paused_until,b.pause_reason,b.usage,b.usage_checked_at,b.spacing_seconds AS request_spacing_seconds,
     COALESCE(b.paused_until>now(),false) AS paused,
@@ -172,6 +173,12 @@ publicRoutes.get('/artist-images/:id',async (req,res) => {
     WHERE u.id=$1 AND a.image_url='/api/artist-images/' || u.id::text`,[req.params.id]);
   if (!image) { res.status(404).json({ error: 'ไม่พบรูป' }); return; }
   res.setHeader('Content-Type',image.content_type); res.send(image.data);
+});
+publicRoutes.get('/status/concert-coverage',async (_req,res)=>{res.json(await getCurrentConcertCoverage());});
+publicRoutes.get('/status/concert-coverage.csv',async (_req,res)=>{
+  const current=await getCurrentConcertCoverage();
+  res.setHeader('Content-Disposition','attachment; filename="concert-current-coverage.csv"');res.type('text/csv');
+  res.send(concertCoverageCsv(current));
 });
 for (const extension of ['csv','md']) publicRoutes.get('/status/concert-monitor.' + extension, async (req,res) => {
   const windowId = req.query.windowId;

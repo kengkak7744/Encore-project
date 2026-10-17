@@ -40,7 +40,7 @@ export function instagramCooldown(headers: Headers, rateLimited: boolean, consec
 
 export type InstagramBudget = {
   beforeRequest(): Promise<void>;
-  observe(response: Response, rateLimited: boolean): Promise<void>;
+  observe(response: Response, rateLimited: boolean, accountUnavailable?:boolean): Promise<void>;
   paused(): Promise<boolean>;
 };
 
@@ -64,11 +64,14 @@ export async function withInstagramBudget<T>(work: (budget: InstagramBudget) => 
           [config.instagramRequestSpacingSeconds,reserved,config.instagramAdaptivePacingEnabled,Math.min(config.instagramRequestSpacingSeconds,config.instagramMinSpacingSeconds)]);
         reserved = true;
       },
-      observe: async (response, rateLimited) => {
+      observe: async (response, rateLimited, accountUnavailable=false) => {
         const state = await one<{ consecutive_limits: number; spacing_seconds: number; healthy_responses: number }>('SELECT consecutive_limits,spacing_seconds,healthy_responses FROM instagram_sync_budget WHERE id=1');
         const cooldown = instagramCooldown(response.headers, rateLimited, state?.consecutive_limits || 0);
         const paced = instagramPacing(cooldown.usage,state?.spacing_seconds || config.instagramRequestSpacingSeconds,state?.healthy_responses || 0);
-        const pacing = response.ok && cooldown.minutes===0 ? paced : { seconds: Math.max(config.instagramRequestSpacingSeconds,paced.seconds),healthy: 0 };
+        const pacing = response.ok && cooldown.minutes===0 ? paced
+          : accountUnavailable && !rateLimited && cooldown.minutes===0
+            ? {seconds:Math.max(state?.spacing_seconds||config.instagramRequestSpacingSeconds,paced.seconds),healthy:0}
+            : { seconds: Math.max(config.instagramRequestSpacingSeconds,paced.seconds),healthy: 0 };
         await query(`UPDATE instagram_sync_budget SET usage=CASE WHEN $1::jsonb IS NULL THEN usage ELSE $1::jsonb END,
           usage_checked_at=CASE WHEN $1::jsonb IS NULL THEN usage_checked_at ELSE now() END,
           consecutive_limits=CASE WHEN $2 THEN consecutive_limits+1 WHEN $3=0 THEN 0 ELSE consecutive_limits END,
