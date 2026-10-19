@@ -1,5 +1,79 @@
 # Encore — Artist Tracking and Fan Assistant
 
+## Git Publishing Hygiene — 19 Oct 2026
+
+The repository ignores private environment settings, SSH/TLS private-key files, local AWS/SSH credentials, `.local/` diagnostics, AWS `concert-reports/`, browser authentication/artifacts, database exports/local data, model weights, dependencies and build caches. Keep runtime secrets in ignored files; commit only sanitized `.env.example` templates. The existing exclusions for project documents/PDFs and agent instructions remain. Source code, SQL migrations, lockfiles, Docker configuration and the artist-image `ATTRIBUTION.md` remain eligible for Git; distribute image credits with their images.
+
+Verified **61 ignored /17 allowed path cases**, with zero tracked files matching the ignore rules. `.gitignore` does not remove files already tracked or erase Git history. No index changes, commit, push, application deployment or runtime tests are needed for this configuration-only change.
+
+## Chat Career Scope Correction — 19 Oct 2026
+
+Fixed the audited Aheye follow-up: joining **4EVE** is described as group entry, with an explicit qualification that the retrieved material does not establish her first professional work. Broad career questions receive targeted grounding instructions and an output check; one model repair shares the existing 60-second inference budget. Persistently rejected drafts remain unavailable. Explicit group-entry questions keep their ordinary response path. Directly negated statements are accepted without letting unrelated uncertainty excuse an affirmative overstatement.
+
+**46 focused tests passed, zero failures/skips; both workspace typechecks and the AWS ARM API build passed.** Native Ollama checks retained all seven profile excerpts and also tested group-entry evidence alone. Final authenticated HTTPS/Chrome verification passed four turns, including both career question wordings, with citations, zero API5xx/page errors, no390px overflow and guest401. Cleanup preserved original user/biography/membership counts and digests at **12:52 Bangkok**. Only the AWS API was updated; no new configuration, migration or model is needed. This resolves the specific scope finding for the verified questions; broader factual quality remains open. [Cause, live verification and acceptance limits](docs/chat-career-scope-fix-2026-10-19.md).
+
+## AWS User Journeys — 19 Oct 2026, 12:17 Bangkok
+
+Verified **11 technical journey groups** against the real HTTPS site across desktop/mobile and separate users: registration/login, following/feed, real PNG/WebM upload and playback, comments/ownership, attended-and-ended concert reviews, native Thai chat, manual trip save/load and session expiry. The selected trip total is **4,800THB**; another user cannot load it. Expiry rejects writes and clears private chat/budget UI.
+
+**Chat factual acceptance remains open:** at this audit checkpoint, one follow-up described entering4EVE as the start of the whole entertainment career, beyond the cited section's scope. That specific finding was subsequently corrected and retested in the career-scope report above. Captured citations and12 completed native `qwen3:8b` model jobs establish working inference, not complete factual quality. Harness navigation/assertion and screenshot corrections are documented separately.
+
+All seven temporary accounts and their dependent data were removed; original user-data counts/digests match. Verified browser runs have zero page errors/API5xx. No application code, deployment or paid service was added. **Backup/restore was excluded at the user's request**; no AWS Backup/snapshot/S3 service was provisioned. Admin-wide checks, native AI failure/contention, human UAT and final design remain separate. [Journey matrix, cleanup and remaining acceptance](docs/aws-user-journey-2026-10-19.md).
+
+## Instagram After AWS Migration — 18 Oct 2026, 13:33 Bangkok
+
+The live database reports **99/100 accounts discovered within an hour**, with HERS still awaiting its unchanged **18 Oct 20:13:48** retry. Across **1,873 intervals whose two successful endpoints were on AWS**, none exceeded60 minutes; the longest was58.99 minutes. The full24-hour window still includes99 migration/recovery gaps over an hour, longest100.99 minutes. AWS has run for18.57 hours at the detailed checkpoint, so AWS-only24-hour acceptance remains open.
+
+**No concurrent old-machine/AWS collector was found.** The local worker stopped before AWS started; zero local attempts followed AWS startup. The601 matching rows in both databases are restored history. AWS has2,076 new recorded attempts:1,972 successful discoveries,27 text,57 media,19 initial transport failures and one request that completed during follow-up. Attempts are not guaranteed billable Meta calls.
+
+Media remains delayed: **zero text /78 media jobs**, three new-post and75 refresh. At13:29 the oldest request was22.95 hours and median14.31 hours; at13:33 the oldest reached23 hours. **45/68 original queue requests cleared with successful AWS media checks;23 remain**. Current calls/time/CPU are **39/51/0%**, so the40% media guard still blocks the queue. **40/60/75% limits, spacing and backoff are unchanged**; combined text/media reads have not yet been observed live.
+
+Read-only audit assertions passed, with matching worker/report policy, no recorded enrichment guard violation and unchanged services/seven-day archive. No forced Graph call, data edit, build, restart or new setting was required. **Keep the local worker stopped while AWS owns ingestion**; use `docker compose up -d db` for local database work. Separate database copies do not share PostgreSQL advisory locks. [Findings, all100 account rows, hourly calls and queue trends](docs/instagram-aws-audit-2026-10-18.md).
+
+## Concert Coverage and Artist Evidence — 18 Oct 2026, 13:23 Bangkok
+
+Reviewed current AWS scheduled evidence: TTM has **45 catalog URLs: 22 parsed, 21 access-verification failures and two excluded**. The original 21 failed URLs now have **12 parsed / seven failed / two excluded**; the current failures include 14 other URLs. All 21 retain prior detail, precise times, venues, prices and posters, but fresh detail checks remain unverified. The public listing's 60 dated rows contain **zero unimported URLs**. BOYdKO's 10 and 12 December dates are valid stored rounds; no date change was needed. Mr. Fanboy EP.11 still needs programme evidence.
+
+Applied **eight dated source observations across HENS, De Flamingo, POTATO, Sarah.salola and JEEP**, preserving previous claims and caveats. Historical rosters, label statements and project credits do not establish current contracts. Artist coverage remains **100 profiles, 71 credited images, 29 missing images and 74 profiles with membership/affiliation caveats**. Ten Commons metadata searches yielded no cleared image; the eleventh returned429 and the batch stopped. Only completed searches received updated unverified review notes.
+
+**17 focused tests, both workspace typechecks and the server build passed.** Live HTTPS/Chrome checks verified all eight claims and citations across five mobile pages, plus ten pending image reviews. A guarded data transaction preserved biographies, images/credits, membership links and monitor archives. All six service identities and the original **168-hour / 672-check** report remain unchanged. Four source files were synchronized for future builds; no runtime rebuild/restart, migration, new setting, Graph call or inference was needed.
+
+Completeness remains open: TTM access failures, Ticketmelon's 375 deferred/two waiting-room pages, Eventpop empty/rejected records, image permissions and current membership/label evidence. [Dated findings, per-URL evidence and remaining checks](docs/coverage-artists-followup-2026-10-18.md).
+
+## Actual Biography Night Audit — 18 Oct 2026, 12:56 Bangkok
+
+Audited the **17 Oct 23:00–18 Oct 00:00** run against the AWS production database: **ten attempts, three published corrections, seven withheld and zero failed jobs**. William, Fourth and Gemini published ten sections in total; Pae and PEAKSayaa! remain pending with their old publications and revision archives preserved. No new artist biography was added: coverage stays **69/100, with 31 missing**. Published sections total **223**, one fewer because William's revision replaces four sections with three.
+
+All ten published sections pass the existing validator, saved model review and exact publication/source checks. Chrome verified all five target pages, sixteen visible sections and citations at 390px. William's formation/performer credits and Fourth's Thai role names match the checked official evidence. **Factual acceptance remains open:** Gemini conflates music credits and dates a mutable Wikipedia article using its creation date; Fourth's affiliation wording and broadcast year still need dated context. Pae's draft merges two tracks; PEAKSayaa!'s video description was unavailable and its final draft had no supported sections.
+
+The retained GPU records show **24 completed/zero failed 27B requests**, with matching successful native HTTP completions during the biography span. No interactive job occurred in the window, so this does not establish concurrent-chat acceptance. The earlier observer watched the local database and reported no runs; this audit uses actual AWS results. Service identities and the original seven-day archive are unchanged. No generation, Graph call, runtime change or manual publication was performed; no new setup is needed. [Per-profile findings, evidence and remaining work](docs/biography-night-audit-2026-10-18.md).
+
+## Conversational Local Chat — 17 Oct 2026
+
+Encore now asks the Windows-hosted Ollama chat model (`qwen3:8b`) to compose a conversational Thai response from retrieved artist biographies, news, concerts or recommendations. This supersedes the direct biography-copy behavior described in the earlier repair below. The biography worker retains its separate 27B model. Answers keep source links; unavailable evidence and stored versus live prices must remain explicit. Invalid citations or unavailable inference fail explicitly instead of silently returning a biography dump.
+
+The assistant page displays question/answer bubbles, per-answer citations, a thinking state and **Start a new chat**. It sends at most eight recent turns; the API further caps history to 6,000 characters. History is held only in page memory, cleared on session changes, and used as conversational context rather than evidence. In-flight requests are cancelled when starting over, leaving the page or changing sessions. Classification and composition share a 60-second inference budget and the existing GPU queue.
+
+**41 focused tests passed, with no failures or skips; both workspace typechecks and the complete production build passed.** AWS ARM API/web rollout and actual local-GPU chat passed. Browser checks covered an Aheye introduction, a follow-up question, reset/logout and mobile overflow; final authenticated HTTP checks covered unavailable information and dated Instagram news. News uses original captions, not prior AI summaries. Final verification at **21:36:59 Bangkok** confirmed matching deployed source hashes, preserved database/Caddy/worker identities and the unchanged seven-day archive. No new environment variables or migrations are required. Conversation quality across all profiles and native 27B contention remain separate acceptance work. [Implementation, evidence and remaining checks](docs/conversational-chat-2026-10-17.md).
+
+## AWS Artist-Profile Chat Repair — 17 Oct 2026, 21:10 Bangkok
+
+Fixed the screenshot question “นายรู้จัก Aheye ไหม”: stored-name aliases now resolve Aheye to Aheye (4EVE), and chat supports profile/history intent. Direct profile questions return stored biography text with citations, without an inference request. Brief responses use three sourced sections; full/detail requests include all sourced sections. Unknown names, missing evidence and authentication failures remain explicit; news/concert queries retain artist scoping.
+
+**32 tests passed with no failures/skips**, both workspace typechecks, the complete production build and the AWS ARM API build passed. Applied only API, preserving web/database/Caddy identities and application data counts. Actual authenticated AWS HTTP checks returned Aheye's brief answer with three sources and full seven-section answer with four sources; guest chat remains401. Repaired the AWS host's public DNS for Docker builds with `sudo tailscale set --accept-dns=false`; its private-IP Ollama connection still works. Browser retry, broader native-classifier/GPU tests and cloud-worker acceptance remain separate. [Causes, changes, deployment and evidence](docs/aws-chat-profile-fix-2026-10-17.md).
+
+## AWS HTTPS DNS Repair — 17 Oct 2026
+
+Repaired the public site's TLS failure: Caddy could redirect HTTP but could not resolve Let's Encrypt through the container's host-stub DNS. A direct lookup using AWS VPC DNS succeeded. The new **AWS-only** `docker-compose.aws.yml` retains environment-file/report settings and sets Caddy DNS to `169.254.169.253`. Use it after `docker-compose.prod.yml`; keep `.env` private.
+
+Applied the validated override to AWS and recreated **only Caddy**, preserving API/web/database identities and start times. Caddy obtained a real Let's Encrypt certificate; external certificate-verified TLS1.3 and HTTPS200 checks passed for home, artists, concerts and API status. Application images were not rebuilt. Data restore, auth, uploads, actual inference, worker scheduling, off-host recovery and other-container DNS remain separate acceptance work. [Cause, deployment, verification and limits](docs/aws-https-repair-2026-10-17.md).
+
+## Private Ollama Forwarding for AWS — 17 Oct 2026
+
+Corrected the deployment instructions for IP-based Tailscale access: HTTP Serve returned404 for the private-IP URL while the MagicDNS hostname worked. Configure **TCP forwarding** on the Windows host with `tailscale serve --bg --tcp=11435 tcp://127.0.0.1:11434`; when replacing the earlier HTTP listener, first remove only that listener with `tailscale serve --http=11435 off`. Keep tailnet access restricted to the AWS server and TCP11435. The production setting remains `OLLAMA_URL=http://<PC_TAILSCALE_IP>:11435`; Ollama continues on its existing local port11434.
+
+Applied the private listener change and verified `/api/version` and `/api/tags` returnHTTP200 through both the private-IP forward and local Ollama, with four installed models. These read-only API checks did not load a model or restart Ollama. **The AWS-host retry, Docker-container connectivity and actual chat/inference remain pending**; local forwarding checks alone do not establish completed deployment. No application code, migration or model configuration changed.
+
 ## TTM Screening Confirmed in Scheduled Runs — 17 Oct 2026, 11:19 Bangkok
 
 Verified nine completed automatic TTM runs after the 02:07 rollout. The **08:00 run excluded HALFWAY SCREENING EP.8 and Khon: Sida** with source-title/path evidence, zero sessions and no fallback. All six archived imports remain absent from the active catalog; four have no new detail attempt because they are no longer listed.

@@ -10,6 +10,8 @@ import { hotelQuote } from '../agoda.js';
 import { recommendConcerts } from '../recommendations.js';
 import { relevantKnowledge } from '../knowledge.js';
 import { applyManualPrices, BudgetInputError, manualPrices, tripTotals, type TripItem } from '../trip-prices.js';
+import { artistProfileEvidence,explicitChatIntent,findChatArtist,isArtistProfileQuestion,type ChatArtist,type ProfileSection } from '../assistant-artists.js';
+import { chatHistory,converse,type ChatEvidence } from '../assistant-conversation.js';
 
 export const assistantRoutes = Router();
 assistantRoutes.use(requireUser);
@@ -25,34 +27,52 @@ assistantRoutes.post('/chat', async (req, res) => {
   res.once('close',() => { if (!res.writableEnded) disconnected.abort(new Error('Chat client disconnected')); });
   const message = String(req.body?.message || '').trim().slice(0, 1500);
   if (!message) { res.status(400).json({ error: 'กรุณาพิมพ์คำถาม' }); return; }
+  const history = chatHistory(req.body?.history);
+  const deadline = Date.now()+60000;
+  const remaining = () => { const ms = deadline-Date.now(); if (ms<=0) throw Error('Chat deadline exceeded'); return ms; };
   const user = res.locals.user as User;
-  const artists = await query<{ id: string; slug: string; name: string; name_en: string | null }>('SELECT id,slug,name,name_en FROM artists ORDER BY length(name) DESC');
+  const artists = await query<ChatArtist>('SELECT id,slug,name,name_en FROM artists ORDER BY length(name) DESC');
   const cities = await query<{ city: string }>('SELECT DISTINCT city FROM concerts WHERE city IS NOT NULL LIMIT 100');
-  let directArtist = artists.find((artist) => [artist.name, artist.name_en].some((name) => name && message.toLocaleLowerCase().includes(name.toLocaleLowerCase())));
+  let directArtist = findChatArtist(artists,message);
   let directCity = cities.find((row) => message.toLocaleLowerCase().includes(row.city.toLocaleLowerCase()));
-  const classifierInstructions = 'เลือก intent ตามสิ่งที่ผู้ใช้ต้องการ: news=ข่าวหรือโพสต์ศิลปิน, concerts=ค้นวัน/สถานที่/ราคางาน, recommendations=ขอแนะนำงานตามรสนิยม, budget=คำนวณงบทริป, search=ค้นข้อความหรือหัวข้อในข่าว/คอนเสิร์ต เช่น ค้นโพสต์เกี่ยวกับอัลบั้มใหม่, unknown=เรื่องอื่น. การมีชื่อศิลปินไม่ได้แปลว่า concerts. ตัวอย่าง "ข่าวศิลปินล่าสุด" ต้องเป็น news; "แนะนำงานจากศิลปินที่ติดตาม" ต้องเป็น recommendations; "ช่วยวางงบทริป" ต้องเป็น budget. ';
+  const classifierInstructions = 'เลือก intent ตามสิ่งที่ผู้ใช้ต้องการ: profile=ขอประวัติหรือแนะนำตัวศิลปิน เช่น รู้จัก Aheye ไหม, news=ข่าวหรือโพสต์ศิลปิน, concerts=ค้นวัน/สถานที่/ราคางาน, recommendations=ขอแนะนำงานตามรสนิยม, budget=คำนวณงบทริป, search=ค้นข้อความหรือหัวข้อในข่าว/คอนเสิร์ต เช่น ค้นโพสต์เกี่ยวกับอัลบั้มใหม่, unknown=เรื่องอื่น. การมีชื่อศิลปินไม่ได้แปลว่า concerts. ตัวอย่าง "ข่าวศิลปินล่าสุด" ต้องเป็น news; "แนะนำงานจากศิลปินที่ติดตาม" ต้องเป็น recommendations; "ช่วยวางงบทริป" ต้องเป็น budget. ';
   try {
+    const respond = async (evidence: ChatEvidence) => {
+      const result = await converse(message,history,evidence,disconnected.signal,remaining());
+      if (!await revalidateUser(req,res)) return;
+      res.json(result);
+    };
+    const respondWithProfile = async (artist: ChatArtist) => {
+      const sections = await query<ProfileSection>('SELECT heading,body,source_url FROM artist_biography_sections WHERE artist_id=$1 ORDER BY position',[artist.id]);
+      if (!await revalidateUser(req,res)) return;
+      await respond(artistProfileEvidence(artist,sections,message));
+    };
+    if (directArtist && isArtistProfileQuestion(message)) { await respondWithProfile(directArtist);return; }
     const body = await ollamaJson(config.ollamaUrl,'/api/chat',{ model: config.chatModel, stream: false, think: false, format: {
       type: 'object',required: ['intent','artist','city','month','year'],additionalProperties: false,
-      properties: { intent: { type: 'string',enum: ['concerts','news','recommendations','budget','search','unknown'] },artist: { type: ['string','null'] },city: { type: ['string','null'] },month: { type: ['integer','null'],minimum: 1,maximum: 12 },year: { type: ['integer','null'] } },
-    }, options: { temperature: 0, num_ctx: 4096,num_predict: 256 }, messages: [{ role: 'system', content: classifierInstructions+'จัดประเภทคำถามแฟนเพลงเท่านั้น ห้ามตอบข้อเท็จจริงหรือสร้าง URL. artist/city เป็นชื่อที่ผู้ใช้ถาม ถ้าไม่ระบุคืน null. ถ้าศิลปินไม่อยู่ในรายชื่อให้คงชื่อที่ถามไว้ ห้ามแทนด้วยศิลปินอื่น. ถ้ามีชื่อไทยที่ตรงศิลปินในรายชื่อให้ใช้ชื่อในรายชื่อ. month/year เป็นเดือน1–12/ปีค.ศ.ที่ถาม ไม่ระบุคืนnull. คำถามนอกเรื่อง/ข้อมูลส่วนตัว/ประวัติที่ไม่ใช่ข่าวหรือคอนเสิร์ตให้intent unknown. searchใช้ค้นข้อความเกี่ยวกับข่าว/คอนเสิร์ตเท่านั้น ไม่ใช้แทนการขอข่าวล่าสุดหรือค้นวัน/เมือง/ราคาที่ระบุชัด. รายชื่อศิลปิน: '+JSON.stringify(artists.map(a => [a.name,a.name_en])) }, { role: 'user', content: message }] },{ interactive: true,signal: disconnected.signal,timeoutMs: 60000 });
+      properties: { intent: { type: 'string',enum: ['concerts','news','recommendations','budget','search','profile','unknown'] },artist: { type: ['string','null'] },city: { type: ['string','null'] },month: { type: ['integer','null'],minimum: 1,maximum: 12 },year: { type: ['integer','null'] } },
+    }, options: { temperature: 0, num_ctx: 4096,num_predict: 256 }, messages: [{ role: 'system', content: classifierInstructions+'จัดประเภทคำถามแฟนเพลงเท่านั้น ห้ามตอบข้อเท็จจริงหรือสร้าง URL. artist/city เป็นชื่อที่ผู้ใช้ถาม ถ้าไม่ระบุคืน null. คำถามต่อที่ใช้ เธอ/เขา/วงนี้/แล้วละ ให้อ่านข้อความผู้ใช้ก่อนหน้าเพื่อรู้ว่าหมายถึงใคร ถ้าถามเรื่องผลงาน จุดเริ่มต้น หรือสมาชิกให้intent profile. ชื่อใหม่ในคำถามล่าสุดมีความสำคัญกว่าประวัติสนทนาเสมอ ถ้าศิลปินไม่อยู่ในรายชื่อให้คงชื่อที่ถามไว้ ห้ามแทนด้วยศิลปินอื่น. ถ้ามีชื่อไทยที่ตรงศิลปินในรายชื่อให้ใช้ชื่อในรายชื่อ. month/year เป็นเดือน1–12/ปีค.ศ.ที่ถาม ไม่ระบุคืนnull. คำถามประวัติหรือแนะนำตัวศิลปินให้intent profile; คำถามนอกเรื่องหรือข้อมูลส่วนตัวที่ไม่มีในโปรไฟล์สาธารณะให้intent unknown. searchใช้ค้นข้อความเกี่ยวกับข่าว/คอนเสิร์ตเท่านั้น ไม่ใช้แทนการขอข่าวล่าสุดหรือค้นวัน/เมือง/ราคาที่ระบุชัด. รายชื่อศิลปิน: '+JSON.stringify(artists.map(a => [a.name,a.name_en])) }, ...history.filter(turn => turn.role==='user').slice(-4),{ role: 'user', content: message }] },{ interactive: true,signal: disconnected.signal,timeoutMs: remaining() });
     if (!await revalidateUser(req,res)) return;
     const selection = JSON.parse(body.message?.content || '{}') as { intent?: string; artist?: unknown; city?: unknown; month?: unknown; year?: unknown };
-    if (!selection || !['concerts','news','recommendations','budget','search','unknown'].includes(selection.intent || '')) throw Error('Invalid AI classification');
-    const intent = selection.intent;
-    if (!directArtist && typeof selection.artist==='string' && selection.artist.trim()) {
-      directArtist = artists.find(artist => [artist.name,artist.name_en,artist.slug].some(name => name?.toLowerCase()===selection.artist?.toString().trim().toLowerCase()));
-      if (!directArtist) { res.json({ answer: 'ยังไม่พบข้อมูลของศิลปินที่ถามในระบบ ข้อมูลไม่พอที่จะยืนยันคอนเสิร์ตหรือข่าว',sources: [] }); return; }
+    if (!selection || !['concerts','news','recommendations','budget','search','profile','unknown'].includes(selection.intent || '')) throw Error('Invalid AI classification');
+    const intent = explicitChatIntent(message) || selection.intent;
+    if (intent!=='unknown' && !directArtist && typeof selection.artist==='string' && selection.artist.trim()) {
+      directArtist = findChatArtist(artists,selection.artist,'name');
+      if (!directArtist) { await respond({ answer: 'ยังไม่พบชื่อศิลปินที่ตรงกันอย่างชัดเจนในระบบ ข้อมูลไม่พอที่จะยืนยัน ลองระบุชื่อเต็มหรือชื่อวงเพิ่มเติม',sources: [] }); return; }
+    }
+    if (intent === 'profile') {
+      if (!directArtist) { await respond({ answer: 'กรุณาระบุชื่อศิลปินที่ต้องการดูประวัติ ข้อมูลยังไม่พอที่จะเลือกโปรไฟล์',sources: [] });return; }
+      await respondWithProfile(directArtist);return;
     }
     if (!directCity && typeof selection.city==='string' && selection.city.trim()) {
       const requested = selection.city.trim();
       directCity = cities.find(row => row.city.toLowerCase()===requested.toLowerCase() || !!cityCode(requested) && cityCode(row.city)===cityCode(requested));
-      if (!directCity) { res.json({ answer: 'ยังไม่พบข้อมูลคอนเสิร์ตในเมืองที่ถาม ข้อมูลไม่พอที่จะยืนยันรายการ',sources: [] }); return; }
+      if (!directCity) { await respond({ answer: 'ยังไม่พบข้อมูลคอนเสิร์ตในเมืองที่ถาม ข้อมูลไม่พอที่จะยืนยันรายการ',sources: [] }); return; }
     }
     let month = typeof selection.month==='number' && Number.isInteger(selection.month) && selection.month>=1 && selection.month<=12 ? selection.month : null;
     let year = typeof selection.year==='number' && Number.isInteger(selection.year) ? selection.year : null;
     if (year && year>2400) year-=543;
-    if (year && (year<1900 || year>2100)) { res.json({ answer: 'ข้อมูลไม่พอสำหรับปีที่ถาม กรุณาระบุปีที่ต้องการค้นหาอีกครั้ง',sources: [] }); return; }
+    if (year && (year<1900 || year>2100)) { await respond({ answer: 'ข้อมูลไม่พอสำหรับปีที่ถาม กรุณาระบุปีที่ต้องการค้นหาอีกครั้ง',sources: [] }); return; }
     const calendar = new Intl.DateTimeFormat('en-CA',{ timeZone: 'Asia/Bangkok',year: 'numeric',month: 'numeric' }).formatToParts(new Date());
     const currentYear = Number(calendar.find(part => part.type==='year')?.value), currentMonth = Number(calendar.find(part => part.type==='month')?.value);
     if (/เดือนนี้|เดือนหน้า/.test(message)) {
@@ -63,24 +83,25 @@ assistantRoutes.post('/chat', async (req, res) => {
     if(intent==='search'){
       const chunks=(await relevantKnowledge(message,{artistId:directArtist?.id,signal:disconnected.signal})).filter(chunk=>chunk.source_url);
       if(!await revalidateUser(req,res))return;
-      res.json({answer:chunks.length?'ข้อความอ้างอิงที่ค้นพบในระบบ (โปรดตรวจว่าตรงกับสิ่งที่ถาม):\n\n'+chunks.map(chunk=>chunk.content.slice(0,800)+'\nแหล่ง: '+chunk.source_url).join('\n\n'):'ยังไม่พบข้อความอ้างอิงที่ตรงพอจะยืนยันคำตอบ บางรายการอาจยังรอจัดทำดัชนี ลองถามข่าวล่าสุดหรือค้นคอนเสิร์ตโดยระบุศิลปิน',sources:[...new Set(chunks.map(chunk=>chunk.source_url))]});return;
+      await respond({answer:chunks.length?'ข้อความอ้างอิงที่ค้นพบในระบบ (โปรดตรวจว่าตรงกับสิ่งที่ถาม):\n\n'+chunks.map(chunk=>chunk.content.slice(0,800)+'\nแหล่ง: '+chunk.source_url).join('\n\n'):'ยังไม่พบข้อความอ้างอิงที่ตรงพอจะยืนยันคำตอบ บางรายการอาจยังรอจัดทำดัชนี ลองถามข่าวล่าสุดหรือค้นคอนเสิร์ตโดยระบุศิลปิน',sources:[...new Set(chunks.map(chunk=>chunk.source_url))]});return;
     }
-    if (intent === 'budget') { res.json({ answer: 'เปิดเครื่องคำนวณงบทริปในหน้านี้เพื่อแยกราคาบัตร การเดินทาง และที่พัก โดยระบบจะแสดงประเภทราคาแต่ละรายการ', sources: [] }); return; }
+    if (intent === 'budget') { await respond({ answer: 'เปิดเครื่องคำนวณงบทริปในหน้านี้เพื่อแยกราคาบัตร การเดินทาง และที่พัก โดยระบบจะแสดงประเภทราคาแต่ละรายการ', sources: [] }); return; }
     if (intent === 'news') {
-      const news = await query<{ body: string | null; summary: string | null; source_url: string; published_at: string | null; artist: string }>('SELECT n.body,n.summary,n.source_url,n.published_at,a.name AS artist FROM news_items n JOIN artists a ON a.id=n.artist_id WHERE NOT n.hidden AND ($1::uuid IS NULL OR n.artist_id=$1) ORDER BY n.published_at DESC NULLS LAST LIMIT 5', [directArtist?.id || null]);
-      const lines = news.map((item) => `${item.artist}: ${(item.summary || item.body || 'โพสต์ไม่มีข้อความ').slice(0, 250)} (${item.source_url})`);
-      res.json({ answer: lines.length ? lines.join('\n\n') : 'ยังไม่มีข่าวที่ระบบดึงข้อความได้จากบัญชีทางการของศิลปินนี้', sources: news.map((item) => item.source_url) }); return;
+      const news = await query<{ body: string | null; source_url: string; published_at: string | null; artist: string }>('SELECT n.body,n.source_url,n.published_at,a.name AS artist FROM news_items n JOIN artists a ON a.id=n.artist_id WHERE NOT n.hidden AND ($1::uuid IS NULL OR n.artist_id=$1) ORDER BY n.published_at DESC NULLS LAST LIMIT 5', [directArtist?.id || null]);
+      // A prior generated summary is not primary evidence for another generation.
+      const lines = news.map((item) => `${item.artist} · โพสต์เมื่อ ${item.published_at ? formatDate(item.published_at) : 'ไม่ระบุวัน'}: ${(item.body?.trim() || 'โพสต์นี้ไม่มีข้อความต้นทางที่อ่านได้ จึงยังสรุปสาระไม่ได้').slice(0, 1000)} (${item.source_url})`);
+      await respond({ answer: lines.length ? lines.join('\n\n') : 'ยังไม่มีข่าวที่ระบบดึงข้อความได้จากบัญชีทางการของศิลปินนี้', sources: news.map((item) => item.source_url) }); return;
     }
     if (intent === 'recommendations') {
       const rows = (await recommendConcerts(user.id)).slice(0,5);
-      res.json({ answer: rows.length ? rows.map((row) => `${row.title} — ${formatDate(row.starts_at,row.time_tba)} · ${row.followed_artist ? 'ศิลปินที่ติดตาม' : 'แนวเพลงตรงกับศิลปินที่ติดตามหรือประวัติงานที่เคยไป'} (${row.source_url || 'ไม่มีลิงก์ต้นทาง'})`).join('\n') : 'ยังไม่มีงานแนะนำจากศิลปินที่ติดตาม แนวเพลง หรือประวัติที่บันทึกในข้อมูลที่ระบบตรวจพบ ลองติดตามศิลปินเพิ่มเติม',sources: [...new Set(rows.map(row => row.source_url).filter(Boolean))] }); return;
+      await respond({ answer: rows.length ? rows.map((row) => `${row.title} — ${formatDate(row.starts_at,row.time_tba)} · ${row.followed_artist ? 'ศิลปินที่ติดตาม' : 'แนวเพลงตรงกับศิลปินที่ติดตามหรือประวัติงานที่เคยไป'} (${row.source_url || 'ไม่มีลิงก์ต้นทาง'})`).join('\n') : 'ยังไม่มีงานแนะนำจากศิลปินที่ติดตาม แนวเพลง หรือประวัติที่บันทึกในข้อมูลที่ระบบตรวจพบ ลองติดตามศิลปินเพิ่มเติม',sources: [...new Set(rows.map(row => row.source_url).filter(Boolean))] }); return;
     }
     if (intent === 'concerts') {
       const concerts = await query<{ title: string; starts_at: string | null; time_tba: boolean; venue: string | null; city: string | null; status: string; price_min: string | null; price_note: string | null; currency: string; source_url: string | null }>(`SELECT c.title,c.starts_at,c.time_tba,c.venue,c.city,c.status,c.price_min,c.price_note,c.currency,COALESCE(cs.source_url,c.official_url) AS source_url FROM concerts c LEFT JOIN LATERAL (SELECT source_url FROM concert_sources WHERE concert_id=c.id ORDER BY CASE source_role WHEN 'organizer' THEN 0 ELSE 1 END LIMIT 1) cs ON true WHERE (c.starts_at >= now() OR (c.time_tba AND (c.starts_at AT TIME ZONE 'Asia/Bangkok')::date >= (now() AT TIME ZONE 'Asia/Bangkok')::date)) AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.concert_id=c.id AND ca.artist_id=$1)) AND ($2::text IS NULL OR c.city ILIKE $2) AND ($3::int IS NULL OR extract(month FROM c.starts_at AT TIME ZONE 'Asia/Bangkok')=$3) AND ($4::int IS NULL OR extract(year FROM c.starts_at AT TIME ZONE 'Asia/Bangkok')=$4) ORDER BY c.starts_at LIMIT 5`, [directArtist?.id || null, directCity?.city || null,month,year]);
       const lines = concerts.map((item) => `${item.title} — ${formatDate(item.starts_at, item.time_tba)} · ${[item.venue, item.city].filter(Boolean).join(', ') || 'ยังไม่ระบุสถานที่'} · ${item.status}${item.price_min ? ` · ราคาต้นทาง ${Number(item.price_min).toLocaleString('th-TH')} ${item.currency}` : ' · ยังไม่ทราบราคา'}${item.price_note ? ' · ' + item.price_note : ''}\nแหล่ง: ${item.source_url || 'ยังไม่มีลิงก์ต้นทาง'}`);
-      res.json({ answer: lines.length ? lines.join('\n\n') : 'ยังไม่พบคอนเสิร์ตที่ตรงกับคำถามในข้อมูลที่ระบบรองรับ', sources: concerts.map((item) => item.source_url).filter(Boolean) }); return;
+      await respond({ answer: lines.length ? lines.join('\n\n') : 'ยังไม่พบคอนเสิร์ตที่ตรงกับคำถามในข้อมูลที่ระบบรองรับ', sources: concerts.map((item) => item.source_url).filter(Boolean) }); return;
     }
-    res.json({ answer: 'ข้อมูลไม่พอที่จะยืนยันคำตอบนี้ ลองถามคอนเสิร์ต ข่าว หรือคำแนะนำจากศิลปินที่ติดตาม', sources: [] });
+    await respond({ answer: 'ข้อมูลไม่พอที่จะยืนยันคำตอบนี้ ลองถามคอนเสิร์ต ข่าว หรือคำแนะนำจากศิลปินที่ติดตาม', sources: [] });
   } catch {
     res.status(503).json({ error: 'ผู้ช่วย AI ยังใช้งานไม่ได้ กรุณาลองใหม่ภายหลัง', code: 'AI_UNAVAILABLE' });
   }

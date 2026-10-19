@@ -6,6 +6,7 @@ import { artistMembershipFollowup } from './artist-membership-followup.js';
 import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { artistMembershipOct15 } from './artist-evidence-oct15.js';
+import { artistMembershipOct18 } from './artist-evidence-oct18.js';
 
 test('Dated membership additions preserve prior claims/caveats and do not invent new biography sections',()=>{
   assert.equal(new Set(artistMembershipAdditions.map(record=>record.slug)).size,8);
@@ -68,13 +69,13 @@ test('Membership additions are repeatable in PostgreSQL and preserve newer/manua
     assert.deepEqual((await db.query('SELECT * FROM artists WHERE slug=ANY($1::text[]) ORDER BY slug',[artistMembershipFollowup.map(row=>row.slug)])).rows,followup);
     // The new dated observations append evidence without changing authored text,
     // manual catalog fields, or the preceding observation's caveats.
-    for(const record of artistMembershipOct15)await db.query(`INSERT INTO artists(slug,name,kind,bio,membership_evidence)
+    for(const record of [...artistMembershipOct15,...artistMembershipOct18])await db.query(`INSERT INTO artists(slug,name,kind,bio,membership_evidence)
       VALUES($1,$1,'solo','Keep existing biography',$2::jsonb) ON CONFLICT(slug) DO NOTHING`,[record.slug,JSON.stringify(prior)]);
     const oct15Before=(await db.query('SELECT slug,bio,updated_at,image_url FROM artists ORDER BY slug')).rows;
-    assert.equal((await applyMembershipAdditions(db,artistMembershipOct15)).length,artistMembershipOct15.length);
+    assert.equal((await applyMembershipAdditions(db,[...artistMembershipOct15,...artistMembershipOct18])).length,artistMembershipOct15.length+artistMembershipOct18.length);
     assert.deepEqual((await db.query('SELECT slug,bio,updated_at,image_url FROM artists ORDER BY slug')).rows,oct15Before);
-    assert.deepEqual(await applyMembershipAdditions(db,artistMembershipOct15),[]);
-    for(const record of artistMembershipOct15){
+    assert.deepEqual(await applyMembershipAdditions(db,[...artistMembershipOct15,...artistMembershipOct18]),[]);
+    for(const record of [...artistMembershipOct15,...artistMembershipOct18]){
       const evidence=(await db.query('SELECT membership_evidence FROM artists WHERE slug=$1',[record.slug])).rows[0].membership_evidence;
       for(const claim of record.claims)assert.deepEqual(evidence.claims.find((saved:{text:string;sourceUrl:string})=>saved.text===claim.text&&saved.sourceUrl===claim.sourceUrl),claim);
       assert.ok(evidence.pending.length>=record.pending.length);

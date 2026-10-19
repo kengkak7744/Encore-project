@@ -6,6 +6,7 @@ import { expandedArtistProfiles } from './expanded-artist-profiles.js';
 import { artistMembershipAdditions } from './artist-membership-additions.js';
 import { artistMembershipFollowup } from './artist-membership-followup.js';
 import { artistMembershipOct15, biographySourceAdditionsOct15 } from './artist-evidence-oct15.js';
+import { artistMembershipOct18 } from './artist-evidence-oct18.js';
 
 const baselineMembership: ArtistMembershipEvidence[] = [
   ...artistMembershipEvidence,
@@ -71,6 +72,7 @@ export async function applyMembershipReview(client: Pick<PoolClient, 'query'>) {
   }
   await applyMembershipAdditions(client);
   await applyMembershipAdditions(client,artistMembershipOct15);
+  await applyMembershipAdditions(client,artistMembershipOct18);
   for(const source of biographySourceAdditionsOct15)await client.query(`INSERT INTO artist_sources(artist_id,source_url,label,checked_at)
     SELECT id,$2,$3,$4 FROM artists WHERE slug=$1 ON CONFLICT(artist_id,source_url) DO UPDATE
     SET checked_at=GREATEST(artist_sources.checked_at,EXCLUDED.checked_at)`,[source.slug,source.sourceUrl,source.label,source.checkedAt]);
