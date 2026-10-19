@@ -86,3 +86,5 @@ backups/
 .DS_Store
 Thumbs.db
 Desktop.ini
+apps/web/public/artist-images/ATTRIBUTION.md
+docker-compose.aws.yml
